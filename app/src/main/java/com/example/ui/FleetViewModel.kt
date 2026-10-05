@@ -34,6 +34,7 @@ data class AppSessionState(
     val loggedInUserDivision: String = "Divisi Operasional & Logistik",
     val loggedInSecurityOfficer: String = "Komandan Pos Suryo",
     val isTripFormOpen: Boolean = false,
+    val isMapPopupOpen: Boolean = false,
     val preselectedVehicleId: String? = null,
     val focusedMapTripId: Int? = null,
     val isGpsPermissionGranted: Boolean = false,
@@ -183,6 +184,21 @@ class FleetViewModel(
     fun focusTripOnMap(tripId: Int?) {
         _session.update {
             it.copy(focusedMapTripId = tripId)
+        }
+    }
+
+    fun openMapPopup(tripId: Int? = null) {
+        _session.update {
+            it.copy(
+                isMapPopupOpen = true,
+                focusedMapTripId = tripId ?: it.focusedMapTripId
+            )
+        }
+    }
+
+    fun closeMapPopup() {
+        _session.update {
+            it.copy(isMapPopupOpen = false)
         }
     }
 

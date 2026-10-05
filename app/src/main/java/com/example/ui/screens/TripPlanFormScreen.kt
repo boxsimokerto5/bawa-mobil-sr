@@ -768,6 +768,7 @@ fun TripPlanFormScreen(
                                         }
                                     }
                             ) {
+                                val _rev = OsmTileStore.tileRevision.intValue
                                 val w = size.width
                                 val h = size.height
                                 val tileSizePx = WebMercator.TILE_SIZE.toFloat()
@@ -782,10 +783,12 @@ fun TripPlanFormScreen(
                                         val top = (h / 2f + (ty - cTy) * tileSizePx).roundToInt()
                                         val right = (w / 2f + (tx + 1 - cTx) * tileSizePx).roundToInt()
                                         val bottom = (h / 2f + (ty + 1 - cTy) * tileSizePx).roundToInt()
-                                        val bmp = OsmTileStore.getOrLoadTile(context, pickerZoom, tx, ty)
-                                        if (bmp != null) {
+                                        val tileSpec = OsmTileStore.getTileOrFallback(context, pickerZoom, tx, ty)
+                                        if (tileSpec != null) {
                                             drawImage(
-                                                image = bmp.asImageBitmap(),
+                                                image = tileSpec.imageBitmap,
+                                                srcOffset = IntOffset(tileSpec.srcLeft, tileSpec.srcTop),
+                                                srcSize = IntSize(tileSpec.srcWidth, tileSpec.srcHeight),
                                                 dstOffset = IntOffset(left, top),
                                                 dstSize = IntSize(
                                                     (right - left).coerceAtLeast(1),

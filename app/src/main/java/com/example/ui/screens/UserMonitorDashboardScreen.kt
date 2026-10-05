@@ -71,6 +71,7 @@ import com.example.data.UserRole
 import com.example.data.VehicleEntity
 import com.example.ui.FleetDashboardUiState
 import com.example.ui.components.TripStatusBadge
+import com.example.ui.components.VintageNearFullScreenMapPopup
 import com.example.ui.components.VintageNotificationBanner
 import com.example.ui.components.VintageOrnamentalDivider
 import com.example.ui.components.VintageRealTimeMapPanel
@@ -97,6 +98,8 @@ fun UserMonitorDashboardScreen(
     uiState: FleetDashboardUiState,
     onOpenTripForm: (String?) -> Unit,
     onSelectTripOnMap: (Int?) -> Unit,
+    onOpenMapPopup: (Int?) -> Unit,
+    onCloseMapPopup: () -> Unit,
     onCompleteTrip: (TripRequestEntity) -> Unit,
     onAdvanceManualStep: () -> Unit,
     onLocationPermissionResult: (android.content.Context, Boolean) -> Unit,
@@ -107,6 +110,23 @@ fun UserMonitorDashboardScreen(
 ) {
     // 0 = Rencana & Armada, 1 = Pantau Peta Live, 2 = Riwayat Perjalanan
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+
+    if (uiState.session.isMapPopupOpen) {
+        VintageNearFullScreenMapPopup(
+            activeTrips = uiState.activeTrips,
+            allDestinations = uiState.destinations,
+            focusedTripId = uiState.session.focusedMapTripId,
+            isGpsEnabled = uiState.session.isGpsPermissionGranted,
+            onSelectTrip = onSelectTripOnMap,
+            onCompleteTrip = { trip ->
+                onCompleteTrip(trip)
+                onCloseMapPopup()
+            },
+            onAdvanceManualStep = onAdvanceManualStep,
+            onLocationPermissionResult = onLocationPermissionResult,
+            onDismiss = onCloseMapPopup
+        )
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -204,8 +224,7 @@ fun UserMonitorDashboardScreen(
                     activeTrips = uiState.activeTrips,
                     onOpenTripForm = onOpenTripForm,
                     onOpenLiveMapForTrip = { tripId ->
-                        onSelectTripOnMap(tripId)
-                        selectedTab = 1
+                        onOpenMapPopup(tripId)
                     },
                     onCompleteTrip = onCompleteTrip,
                     onQuickSwitchToSecurity = onQuickSwitchRole
@@ -219,14 +238,15 @@ fun UserMonitorDashboardScreen(
                     onSelectTrip = onSelectTripOnMap,
                     onCompleteTrip = onCompleteTrip,
                     onAdvanceManualStep = onAdvanceManualStep,
-                    onLocationPermissionResult = onLocationPermissionResult
+                    onLocationPermissionResult = onLocationPermissionResult,
+                    isInsidePopup = false,
+                    onOpenFullPopup = { onOpenMapPopup(uiState.session.focusedMapTripId) }
                 )
 
                 2 -> TripHistoryListTab(
                     trips = uiState.allTrips,
                     onViewOnMap = { tripId ->
-                        onSelectTripOnMap(tripId)
-                        selectedTab = 1
+                        onOpenMapPopup(tripId)
                     }
                 )
             }

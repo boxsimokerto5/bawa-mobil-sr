@@ -62,12 +62,12 @@ fun BawaMobilSrApp(
 ) {
     val session = uiState.session
 
-    // Handle system back navigation cleanly across role screens & form
+    // Handle system back navigation cleanly across role screens, map popup & form
     BackHandler(enabled = session.currentRole != UserRole.NONE) {
-        if (session.isTripFormOpen) {
-            viewModel.closeTripPlanForm()
-        } else {
-            viewModel.logout()
+        when {
+            session.isMapPopupOpen -> viewModel.closeMapPopup()
+            session.isTripFormOpen -> viewModel.closeTripPlanForm()
+            else -> viewModel.logout()
         }
     }
 
@@ -131,6 +131,8 @@ fun BawaMobilSrApp(
                         uiState = uiState,
                         onOpenTripForm = { vehicleId -> viewModel.openTripPlanForm(vehicleId) },
                         onSelectTripOnMap = { tripId -> viewModel.focusTripOnMap(tripId) },
+                        onOpenMapPopup = { tripId -> viewModel.openMapPopup(tripId) },
+                        onCloseMapPopup = { viewModel.closeMapPopup() },
                         onCompleteTrip = { trip ->
                             viewModel.completeActiveTrip(trip.id, trip.vehicleName)
                         },
@@ -157,6 +159,8 @@ fun BawaMobilSrApp(
                             viewModel.completeActiveTrip(trip.id, trip.vehicleName)
                         },
                         onSelectTripOnMap = { tripId -> viewModel.focusTripOnMap(tripId) },
+                        onOpenMapPopup = { tripId -> viewModel.openMapPopup(tripId) },
+                        onCloseMapPopup = { viewModel.closeMapPopup() },
                         onAdvanceManualStep = { viewModel.advanceSingleStepManual() },
                         onLocationPermissionResult = { ctx, granted ->
                             viewModel.onLocationPermissionResult(ctx, granted)

@@ -5,23 +5,28 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,12 +35,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
@@ -48,6 +59,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -57,20 +69,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -84,6 +98,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.DestinationEntity
 import com.example.data.FleetRepository
 import com.example.data.TripRequestEntity
@@ -98,11 +114,142 @@ import com.example.ui.theme.VintageCardCream
 import com.example.ui.theme.VintageCreamBg
 import com.example.ui.theme.VintageGreenBg
 import com.example.ui.theme.VintageGreenSuccess
-import com.example.ui.theme.VintageMapRoad
 import com.example.ui.theme.VintageParchmentSurface
 import com.example.ui.theme.VintageWarmBorder
 import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.pow
 import kotlin.math.roundToInt
+
+/**
+ * Almost Full-Screen Popup Modal Dialog (96% width x 94% height) for live OpenStreetMap monitoring.
+ * Gives maximum viewport space to the real street map while keeping floating controls & compact telemetry.
+ */
+@Composable
+fun VintageNearFullScreenMapPopup(
+    activeTrips: List<TripRequestEntity>,
+    allDestinations: List<DestinationEntity>,
+    focusedTripId: Int?,
+    isGpsEnabled: Boolean,
+    onSelectTrip: (Int?) -> Unit,
+    onCompleteTrip: (TripRequestEntity) -> Unit,
+    onAdvanceManualStep: () -> Unit,
+    onLocationPermissionResult: (android.content.Context, Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.98f)
+                    .fillMaxHeight(0.95f)
+                    .testTag("near_fullscreen_map_popup"),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = VintageCreamBg),
+                border = BorderStroke(2.5.dp, MetallicGold),
+                elevation = CardDefaults.cardElevation(defaultElevation = 14.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Compact Vintage Popup Header Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(EspressoBrown, RichLeatherBrown)
+                                )
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Explore,
+                                contentDescription = null,
+                                tint = MetallicGold,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Layar Penuh Pantauan Peta Jalan Asli",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = SoftGoldHighlight,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "OpenStreetMap Live • Cubit 2 jari atau ketuk 2x untuk perbesar",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = VintageCreamBg.copy(alpha = 0.85f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = onDismiss,
+                            shape = RoundedCornerShape(50),
+                            color = SoftGoldHighlight,
+                            border = BorderStroke(1.dp, MetallicGold),
+                            modifier = Modifier.testTag("close_fullscreen_map_popup_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Tutup Pop Up Peta",
+                                    tint = DeepInkBrown,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Tutup",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DeepInkBrown,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Full-bleed Map Content inside Popup
+                    VintageRealTimeMapPanel(
+                        activeTrips = activeTrips,
+                        allDestinations = allDestinations,
+                        focusedTripId = focusedTripId,
+                        isGpsEnabled = isGpsEnabled,
+                        onSelectTrip = onSelectTrip,
+                        onCompleteTrip = onCompleteTrip,
+                        onAdvanceManualStep = onAdvanceManualStep,
+                        onLocationPermissionResult = onLocationPermissionResult,
+                        isInsidePopup = true,
+                        onOpenFullPopup = onDismiss,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun VintageRealTimeMapPanel(
@@ -114,6 +261,8 @@ fun VintageRealTimeMapPanel(
     onCompleteTrip: (TripRequestEntity) -> Unit,
     onAdvanceManualStep: () -> Unit,
     onLocationPermissionResult: (android.content.Context, Boolean) -> Unit,
+    isInsidePopup: Boolean = false,
+    onOpenFullPopup: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -129,8 +278,14 @@ fun VintageRealTimeMapPanel(
         activeTrips.firstOrNull { it.id == focusedTripId } ?: activeTrips.firstOrNull()
     }
 
-    // Real OpenStreetMap slippy zoom level (11..17) & center lat/lng
-    var osmZoom by remember { mutableIntStateOf(13) }
+    // Continuous floating-point zoom (10.5f .. 17.5f) for butter-smooth pinch & button zoom
+    var targetZoom by remember { mutableFloatStateOf(if (isInsidePopup) 14.0f else 13.5f) }
+    val smoothZoom by animateFloatAsState(
+        targetValue = targetZoom,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "smooth_osm_zoom"
+    )
+
     var centerLat by remember {
         mutableDoubleStateOf(selectedTrip?.currentLat ?: FleetRepository.BASE_LAT)
     }
@@ -139,8 +294,27 @@ fun VintageRealTimeMapPanel(
     }
     var followSelectedVehicle by remember { mutableStateOf(true) }
     var vintageTintOverlay by remember { mutableStateOf(true) }
+    // Allow collapsing the bottom telemetry card so the map can occupy 100% of the canvas
+    var isTelemetryExpanded by remember { mutableStateOf(!isInsidePopup) }
 
-    // Automatically follow the focused vehicle as its GPS/telemetry updates if follow mode is active
+    // Smoothly interpolate camera & vehicle positions so markers glide at 60fps
+    val animatedCenterLat by animateFloatAsState(
+        targetValue = centerLat.toFloat(),
+        animationSpec = tween(
+            durationMillis = if (followSelectedVehicle) 1800 else 60,
+            easing = LinearEasing
+        ),
+        label = "camera_lat"
+    )
+    val animatedCenterLng by animateFloatAsState(
+        targetValue = centerLng.toFloat(),
+        animationSpec = tween(
+            durationMillis = if (followSelectedVehicle) 1800 else 60,
+            easing = LinearEasing
+        ),
+        label = "camera_lng"
+    )
+
     LaunchedEffect(selectedTrip?.id, selectedTrip?.currentLat, selectedTrip?.currentLng, followSelectedVehicle) {
         if (followSelectedVehicle && selectedTrip != null) {
             centerLat = selectedTrip.currentLat
@@ -148,10 +322,17 @@ fun VintageRealTimeMapPanel(
         }
     }
 
+    val discreteZoom = smoothZoom.toInt().coerceIn(10, 17)
+    LaunchedEffect(discreteZoom, (centerLat * 100).toInt(), (centerLng * 100).toInt()) {
+        val cx = floor(WebMercator.lonToTileX(centerLng, discreteZoom)).toInt()
+        val cy = floor(WebMercator.latToTileY(centerLat, discreteZoom)).toInt()
+        OsmTileStore.prefetchRegion(context, discreteZoom, cx, cy, radius = 2)
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "osm_radar_pulse")
     val pulseRadiusMultiplier by infiniteTransition.animateFloat(
         initialValue = 0.7f,
-        targetValue = 2.2f,
+        targetValue = 2.1f,
         animationSpec = infiniteRepeatable(
             animation = tween(1800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
@@ -159,7 +340,7 @@ fun VintageRealTimeMapPanel(
         label = "pulse_radius"
     )
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.65f,
+        initialValue = 0.60f,
         targetValue = 0.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(1800, easing = LinearEasing),
@@ -168,205 +349,143 @@ fun VintageRealTimeMapPanel(
         label = "pulse_alpha"
     )
 
-    val textMeasurer = rememberTextMeasurer()
+    val animatedVehiclePositions = activeTrips.associate { trip ->
+        val animLat by animateFloatAsState(
+            targetValue = trip.currentLat.toFloat(),
+            animationSpec = tween(durationMillis = 2200, easing = LinearEasing),
+            label = "veh_lat_${trip.id}"
+        )
+        val animLng by animateFloatAsState(
+            targetValue = trip.currentLng.toFloat(),
+            animationSpec = tween(durationMillis = 2200, easing = LinearEasing),
+            label = "veh_lng_${trip.id}"
+        )
+        trip.id to Pair(animLat.toDouble(), animLng.toDouble())
+    }
 
-    Column(
+    val textMeasurer = rememberTextMeasurer()
+    val tileRevisionCount = OsmTileStore.tileRevision.intValue
+
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(if (isInsidePopup) 6.dp else 8.dp)
     ) {
-        // Top Header Info Bar
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Peta Jalan Asli (OpenStreetMap)",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = EspressoBrown
-                )
-                Text(
-                    text = if (activeTrips.isEmpty()) {
-                        "Semua unit parkir di Pos Utama SR • Peta Jalan Live"
-                    } else {
-                        "${activeTrips.size} Unit Dalam Perjalanan • Pantauan Peta Jalan Asli"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SoftMochaText
-                )
-            }
-
-            // GPS Sensor Link Button
-            Surface(
-                onClick = {
-                    permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    )
-                },
-                shape = RoundedCornerShape(50),
-                color = if (isGpsEnabled) VintageGreenBg else SoftGoldHighlight,
-                border = BorderStroke(1.dp, if (isGpsEnabled) VintageGreenSuccess else AntiqueGold),
-                modifier = Modifier.testTag("gps_sync_button")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.GpsFixed,
-                        contentDescription = "Aktifkan GPS Perangkat",
-                        tint = if (isGpsEnabled) VintageGreenSuccess else EspressoBrown,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isGpsEnabled) "GPS HP Aktif" else "Sinkron GPS HP",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isGpsEnabled) VintageGreenSuccess else DeepInkBrown,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Filter Chips for Active Vehicles on Map
-        if (activeTrips.isNotEmpty()) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 4.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(activeTrips, key = { it.id }) { trip ->
-                    val isSelected = selectedTrip?.id == trip.id
-                    Surface(
-                        onClick = {
-                            onSelectTrip(trip.id)
-                            followSelectedVehicle = true
-                            centerLat = trip.currentLat
-                            centerLng = trip.currentLng
-                        },
-                        shape = RoundedCornerShape(50),
-                        color = if (isSelected) EspressoBrown else VintageCardCream,
-                        border = BorderStroke(
-                            width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) MetallicGold else VintageWarmBorder
-                        ),
-                        modifier = Modifier.testTag("map_vehicle_chip_${trip.vehicleId}")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = vehicleIconFor(trip.vehicleId),
-                                contentDescription = trip.vehicleName,
-                                tint = if (isSelected) MetallicGold else EspressoBrown,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${trip.vehicleName} (${trip.driverName.split(" ").firstOrNull() ?: ""})",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (isSelected) SoftGoldHighlight else DeepInkBrown,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${trip.currentSpeedKmh} km/j",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isSelected) VintageCreamBg else VintageGreenSuccess
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Real OpenStreetMap Interactive Map Container
+        // Full-Screen / Near-Full-Screen Interactive Map Canvas
         Card(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
+                .fillMaxSize()
                 .testTag("digital_realtime_map_canvas"),
             shape = RoundedCornerShape(18.dp),
             border = BorderStroke(2.dp, AntiqueGold),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clipToBounds()
+            ) {
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color(0xFFF2E9D8))
-                        .pointerInput(osmZoom) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                followSelectedVehicle = false
-                                val centerTileX = WebMercator.lonToTileX(centerLng, osmZoom)
-                                val centerTileY = WebMercator.latToTileY(centerLat, osmZoom)
-                                val newTileX = centerTileX - (dragAmount.x / WebMercator.TILE_SIZE)
-                                val newTileY = centerTileY - (dragAmount.y / WebMercator.TILE_SIZE)
-                                centerLng = WebMercator.tileXToLon(newTileX, osmZoom).coerceIn(-179.9, 179.9)
-                                centerLat = WebMercator.tileYToLat(newTileY, osmZoom).coerceIn(-80.0, 80.0)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoomChange, _ ->
+                                if (pan != Offset.Zero) {
+                                    followSelectedVehicle = false
+                                    val zInt = targetZoom.toInt().coerceIn(10, 17)
+                                    val scaleFactor = 2.0.pow((targetZoom - zInt).toDouble())
+                                    val effectiveTileSize = WebMercator.TILE_SIZE * scaleFactor
+                                    val cTileX = WebMercator.lonToTileX(centerLng, zInt)
+                                    val cTileY = WebMercator.latToTileY(centerLat, zInt)
+                                    val newTileX = cTileX - (pan.x / effectiveTileSize)
+                                    val newTileY = cTileY - (pan.y / effectiveTileSize)
+                                    centerLng = WebMercator.tileXToLon(newTileX, zInt).coerceIn(-179.9, 179.9)
+                                    centerLat = WebMercator.tileYToLat(newTileY, zInt).coerceIn(-80.0, 80.0)
+                                }
+                                if (zoomChange != 1f) {
+                                    val zoomDelta = (ln(zoomChange.toDouble()) / ln(2.0)).toFloat()
+                                    targetZoom = (targetZoom + zoomDelta).coerceIn(10.5f, 17.5f)
+                                }
                             }
                         }
-                        .pointerInput(activeTrips, osmZoom, centerLat, centerLng) {
-                            detectTapGestures { tapOffset ->
-                                val w = size.width.toFloat()
-                                val h = size.height.toFloat()
-                                val cTileX = WebMercator.lonToTileX(centerLng, osmZoom)
-                                val cTileY = WebMercator.latToTileY(centerLat, osmZoom)
+                        .pointerInput(activeTrips, smoothZoom, centerLat, centerLng) {
+                            detectTapGestures(
+                                onDoubleTap = { tapOffset ->
+                                    followSelectedVehicle = false
+                                    val w = size.width.toFloat()
+                                    val h = size.height.toFloat()
+                                    val zInt = targetZoom.toInt().coerceIn(10, 17)
+                                    val scaleFactor = 2.0.pow((targetZoom - zInt).toDouble())
+                                    val effectiveTileSize = WebMercator.TILE_SIZE * scaleFactor
+                                    val cTileX = WebMercator.lonToTileX(centerLng, zInt)
+                                    val cTileY = WebMercator.latToTileY(centerLat, zInt)
+                                    val tappedTileX = cTileX + (tapOffset.x - w / 2f) / effectiveTileSize * 0.45
+                                    val tappedTileY = cTileY + (tapOffset.y - h / 2f) / effectiveTileSize * 0.45
+                                    centerLng = WebMercator.tileXToLon(tappedTileX, zInt).coerceIn(-179.9, 179.9)
+                                    centerLat = WebMercator.tileYToLat(tappedTileY, zInt).coerceIn(-80.0, 80.0)
+                                    targetZoom = (targetZoom + 1.0f).coerceAtMost(17.5f)
+                                },
+                                onTap = { tapOffset ->
+                                    val w = size.width.toFloat()
+                                    val h = size.height.toFloat()
+                                    val zInt = smoothZoom.toInt().coerceIn(10, 17)
+                                    val scaleFactor = 2f.pow(smoothZoom - zInt)
+                                    val effectiveTileSize = WebMercator.TILE_SIZE.toFloat() * scaleFactor
+                                    val cTileX = WebMercator.lonToTileX(centerLng, zInt)
+                                    val cTileY = WebMercator.latToTileY(centerLat, zInt)
 
-                                fun project(lat: Double, lng: Double): Offset {
-                                    val tx = WebMercator.lonToTileX(lng, osmZoom)
-                                    val ty = WebMercator.latToTileY(lat, osmZoom)
-                                    return Offset(
-                                        x = (w / 2f + (tx - cTileX) * WebMercator.TILE_SIZE).toFloat(),
-                                        y = (h / 2f + (ty - cTileY) * WebMercator.TILE_SIZE).toFloat()
-                                    )
-                                }
+                                    fun project(lat: Double, lng: Double): Offset {
+                                        val tx = WebMercator.lonToTileX(lng, zInt)
+                                        val ty = WebMercator.latToTileY(lat, zInt)
+                                        return Offset(
+                                            x = (w / 2f + (tx - cTileX) * effectiveTileSize).toFloat(),
+                                            y = (h / 2f + (ty - cTileY) * effectiveTileSize).toFloat()
+                                        )
+                                    }
 
-                                val hitTrip = activeTrips.minByOrNull { trip ->
-                                    val pt = project(trip.currentLat, trip.currentLng)
-                                    (pt - tapOffset).getDistance()
-                                }
-                                if (hitTrip != null) {
-                                    val pt = project(hitTrip.currentLat, hitTrip.currentLng)
-                                    if ((pt - tapOffset).getDistance() < 90f) {
-                                        onSelectTrip(hitTrip.id)
-                                        followSelectedVehicle = true
-                                        centerLat = hitTrip.currentLat
-                                        centerLng = hitTrip.currentLng
+                                    val hitTrip = activeTrips.minByOrNull { trip ->
+                                        val pt = project(trip.currentLat, trip.currentLng)
+                                        (pt - tapOffset).getDistance()
+                                    }
+                                    if (hitTrip != null) {
+                                        val pt = project(hitTrip.currentLat, hitTrip.currentLng)
+                                        if ((pt - tapOffset).getDistance() < 95f) {
+                                            onSelectTrip(hitTrip.id)
+                                            followSelectedVehicle = true
+                                            centerLat = hitTrip.currentLat
+                                            centerLng = hitTrip.currentLng
+                                        }
                                     }
                                 }
-                            }
+                            )
                         }
                 ) {
+                    val _rev = tileRevisionCount
+
                     val w = size.width
                     val h = size.height
-                    val tileSizePx = WebMercator.TILE_SIZE.toFloat()
 
-                    val centerTileX = WebMercator.lonToTileX(centerLng, osmZoom)
-                    val centerTileY = WebMercator.latToTileY(centerLat, osmZoom)
+                    val zInt = smoothZoom.toInt().coerceIn(10, 17)
+                    val fractionalScale = 2f.pow(smoothZoom - zInt)
+                    val tileSizePx = WebMercator.TILE_SIZE.toFloat() * fractionalScale
+
+                    val renderCenterLat = if (followSelectedVehicle) animatedCenterLat.toDouble() else centerLat
+                    val renderCenterLng = if (followSelectedVehicle) animatedCenterLng.toDouble() else centerLng
+
+                    val centerTileX = WebMercator.lonToTileX(renderCenterLng, zInt)
+                    val centerTileY = WebMercator.latToTileY(renderCenterLat, zInt)
 
                     fun project(lat: Double, lng: Double): Offset {
-                        val tx = WebMercator.lonToTileX(lng, osmZoom)
-                        val ty = WebMercator.latToTileY(lat, osmZoom)
+                        val tx = WebMercator.lonToTileX(lng, zInt)
+                        val ty = WebMercator.latToTileY(lat, zInt)
                         return Offset(
                             x = (w / 2f + (tx - centerTileX) * tileSizePx).toFloat(),
                             y = (h / 2f + (ty - centerTileY) * tileSizePx).toFloat()
                         )
                     }
 
-                    // 1. Render Real OpenStreetMap Raster Tiles
+                    // 1. Render Real OpenStreetMap Raster Tiles with Parent-Tile Fallback
                     val halfTilesX = (w / (2f * tileSizePx)).toInt() + 2
                     val halfTilesY = (h / (2f * tileSizePx)).toInt() + 2
                     val baseTileX = floor(centerTileX).toInt()
@@ -382,22 +501,24 @@ fun VintageRealTimeMapPanel(
                             val tileW = (drawRight - drawLeft).coerceAtLeast(1)
                             val tileH = (drawBottom - drawTop).coerceAtLeast(1)
 
-                            val bmp = OsmTileStore.getOrLoadTile(context, osmZoom, tx, ty)
-                            if (bmp != null) {
+                            val tileSpec = OsmTileStore.getTileOrFallback(context, zInt, tx, ty)
+                            if (tileSpec != null) {
                                 drawImage(
-                                    image = bmp.asImageBitmap(),
+                                    image = tileSpec.imageBitmap,
+                                    srcOffset = IntOffset(tileSpec.srcLeft, tileSpec.srcTop),
+                                    srcSize = IntSize(tileSpec.srcWidth, tileSpec.srcHeight),
                                     dstOffset = IntOffset(drawLeft, drawTop),
-                                    dstSize = IntSize(tileW, tileH)
+                                    dstSize = IntSize(tileW, tileH),
+                                    filterQuality = FilterQuality.Medium
                                 )
                             } else {
-                                // Subtle placeholder grid while real OSM tile downloads
                                 drawRect(
                                     color = Color(0xFFEDE1CB),
                                     topLeft = Offset(drawLeft.toFloat(), drawTop.toFloat()),
                                     size = Size(tileW.toFloat(), tileH.toFloat())
                                 )
                                 drawRect(
-                                    color = AntiqueGold.copy(alpha = 0.25f),
+                                    color = AntiqueGold.copy(alpha = 0.22f),
                                     topLeft = Offset(drawLeft.toFloat(), drawTop.toFloat()),
                                     size = Size(tileW.toFloat(), tileH.toFloat()),
                                     style = Stroke(width = 1f)
@@ -406,20 +527,19 @@ fun VintageRealTimeMapPanel(
                         }
                     }
 
-                    // Optional Warm Vintage Sepia Glaze over OpenStreetMap so it blends with Brown & Gold theme
                     if (vintageTintOverlay) {
                         drawRect(
-                            color = Color(0xFFD4AF37).copy(alpha = 0.10f),
+                            color = Color(0xFFD4AF37).copy(alpha = 0.08f),
                             topLeft = Offset.Zero,
                             size = size
                         )
                     }
 
-                    // 2. Draw All Registered Destinations as Waypoint Pins on Real Street Map
+                    // 2. Registered Destination Pins
                     val basePos = project(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG)
                     allDestinations.forEach { dest ->
                         val pt = project(dest.latitude, dest.longitude)
-                        if (pt.x in -100f..(w + 100f) && pt.y in -100f..(h + 100f)) {
+                        if (pt.x in -80f..(w + 80f) && pt.y in -80f..(h + 80f)) {
                             drawCircle(
                                 color = EspressoBrown,
                                 radius = 7f,
@@ -433,7 +553,7 @@ fun VintageRealTimeMapPanel(
                         }
                     }
 
-                    // 3. Draw Active Trip Route Polylines & Numbered Stops on Real Street Map
+                    // 3. Active Trip Route Polylines & Numbered Stops
                     activeTrips.forEach { trip ->
                         val isFocused = selectedTrip?.id == trip.id
                         val coords = trip.parsedCoordinates
@@ -447,9 +567,8 @@ fun VintageRealTimeMapPanel(
                             val pStart = project(waypoints[i].first, waypoints[i].second)
                             val pEnd = project(waypoints[i + 1].first, waypoints[i + 1].second)
 
-                            // Casing outline so route stands out clearly over OpenStreetMap roads
                             drawLine(
-                                color = if (isFocused) MetallicGold.copy(alpha = 0.75f) else VintageCardCream.copy(alpha = 0.7f),
+                                color = if (isFocused) MetallicGold.copy(alpha = 0.78f) else VintageCardCream.copy(alpha = 0.7f),
                                 start = pStart,
                                 end = pEnd,
                                 strokeWidth = if (isFocused) 13f else 8f,
@@ -466,252 +585,365 @@ fun VintageRealTimeMapPanel(
                             )
                         }
 
-                        // Numbered Destination Pins
                         coords.forEachIndexed { idx, pair ->
                             val destPt = project(pair.first, pair.second)
-                            drawCircle(
-                                color = EspressoBrown,
-                                radius = if (isFocused) 16f else 12f,
-                                center = destPt
-                            )
-                            drawCircle(
-                                color = MetallicGold,
-                                radius = if (isFocused) 13f else 9f,
-                                center = destPt
-                            )
-                            val numLayout = textMeasurer.measure(
-                                text = "${idx + 1}",
-                                style = TextStyle(
-                                    color = DeepInkBrown,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                            if (destPt.x in -120f..(w + 120f) && destPt.y in -120f..(h + 120f)) {
+                                drawCircle(
+                                    color = EspressoBrown,
+                                    radius = if (isFocused) 16f else 12f,
+                                    center = destPt
                                 )
-                            )
-                            drawText(
-                                textLayoutResult = numLayout,
-                                topLeft = Offset(
-                                    destPt.x - numLayout.size.width / 2f,
-                                    destPt.y - numLayout.size.height / 2f
+                                drawCircle(
+                                    color = MetallicGold,
+                                    radius = if (isFocused) 13f else 9f,
+                                    center = destPt
                                 )
-                            )
-
-                            if (isFocused) {
-                                val destTitle = names.getOrNull(idx) ?: "Tujuan ${idx + 1}"
-                                val labelResult = textMeasurer.measure(
-                                    text = destTitle,
+                                val numLayout = textMeasurer.measure(
+                                    text = "${idx + 1}",
                                     style = TextStyle(
                                         color = DeepInkBrown,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 )
-                                val padH = 7f
-                                val padV = 4f
-                                val boxW = labelResult.size.width + padH * 2
-                                val boxH = labelResult.size.height + padV * 2
-                                val boxTopLeft = Offset(destPt.x - boxW / 2f, destPt.y + 18f)
-                                drawRoundRect(
-                                    color = VintageCardCream.copy(alpha = 0.95f),
-                                    topLeft = boxTopLeft,
-                                    size = Size(boxW, boxH),
-                                    cornerRadius = CornerRadius(6f, 6f)
-                                )
-                                drawRoundRect(
-                                    color = EspressoBrown,
-                                    topLeft = boxTopLeft,
-                                    size = Size(boxW, boxH),
-                                    cornerRadius = CornerRadius(6f, 6f),
-                                    style = Stroke(width = 1.5f)
-                                )
                                 drawText(
-                                    textLayoutResult = labelResult,
-                                    topLeft = Offset(boxTopLeft.x + padH, boxTopLeft.y + padV)
+                                    textLayoutResult = numLayout,
+                                    topLeft = Offset(
+                                        destPt.x - numLayout.size.width / 2f,
+                                        destPt.y - numLayout.size.height / 2f
+                                    )
                                 )
+
+                                if (isFocused) {
+                                    val destTitle = names.getOrNull(idx) ?: "Tujuan ${idx + 1}"
+                                    val labelResult = textMeasurer.measure(
+                                        text = destTitle,
+                                        style = TextStyle(
+                                            color = DeepInkBrown,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                    val padH = 7f
+                                    val padV = 4f
+                                    val boxW = labelResult.size.width + padH * 2
+                                    val boxH = labelResult.size.height + padV * 2
+                                    val boxTopLeft = Offset(destPt.x - boxW / 2f, destPt.y + 18f)
+                                    drawRoundRect(
+                                        color = VintageCardCream.copy(alpha = 0.95f),
+                                        topLeft = boxTopLeft,
+                                        size = Size(boxW, boxH),
+                                        cornerRadius = CornerRadius(6f, 6f)
+                                    )
+                                    drawRoundRect(
+                                        color = EspressoBrown,
+                                        topLeft = boxTopLeft,
+                                        size = Size(boxW, boxH),
+                                        cornerRadius = CornerRadius(6f, 6f),
+                                        style = Stroke(width = 1.5f)
+                                    )
+                                    drawText(
+                                        textLayoutResult = labelResult,
+                                        topLeft = Offset(boxTopLeft.x + padH, boxTopLeft.y + padV)
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // 4. Draw Base Camp Marker (Pos Utama Keamanan SR)
-                    drawCircle(
-                        color = EspressoBrown,
-                        radius = 17f,
-                        center = basePos
-                    )
-                    drawCircle(
-                        color = MetallicGold,
-                        radius = 12f,
-                        center = basePos
-                    )
-                    drawCircle(
-                        color = EspressoBrown,
-                        radius = 5f,
-                        center = basePos
-                    )
-                    val baseLabel = textMeasurer.measure(
-                        text = "POS UTAMA SR",
-                        style = TextStyle(
-                            color = SoftGoldHighlight,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                    val baseTagW = baseLabel.size.width + 14f
-                    val baseTagH = baseLabel.size.height + 6f
-                    val baseTagOffset = Offset(basePos.x - baseTagW / 2f, basePos.y - 35f)
-                    drawRoundRect(
-                        color = EspressoBrown,
-                        topLeft = baseTagOffset,
-                        size = Size(baseTagW, baseTagH),
-                        cornerRadius = CornerRadius(6f, 6f)
-                    )
-                    drawRoundRect(
-                        color = MetallicGold,
-                        topLeft = baseTagOffset,
-                        size = Size(baseTagW, baseTagH),
-                        cornerRadius = CornerRadius(6f, 6f),
-                        style = Stroke(width = 1.2f)
-                    )
-                    drawText(
-                        textLayoutResult = baseLabel,
-                        topLeft = Offset(baseTagOffset.x + 7f, baseTagOffset.y + 3f)
-                    )
-
-                    // 5. Draw Live Moving Vehicle Markers on Real OpenStreetMap
-                    activeTrips.forEach { trip ->
-                        val isFocused = selectedTrip?.id == trip.id
-                        val vPos = project(trip.currentLat, trip.currentLng)
-
+                    // 4. Base Camp Marker (Pos Utama Keamanan SR)
+                    if (basePos.x in -120f..(w + 120f) && basePos.y in -120f..(h + 120f)) {
                         drawCircle(
-                            color = if (isFocused) {
-                                EspressoBrown.copy(alpha = pulseAlpha * 0.65f)
-                            } else {
-                                VintageGreenSuccess.copy(alpha = pulseAlpha * 0.65f)
-                            },
-                            radius = (if (isFocused) 28f else 22f) * pulseRadiusMultiplier,
-                            center = vPos
-                        )
-
-                        drawCircle(
-                            color = if (isFocused) MetallicGold else AntiqueGold,
-                            radius = if (isFocused) 23f else 18f,
-                            center = vPos
+                            color = EspressoBrown,
+                            radius = 17f,
+                            center = basePos
                         )
                         drawCircle(
-                            color = if (isFocused) EspressoBrown else RichLeatherBrown,
-                            radius = if (isFocused) 18f else 14f,
-                            center = vPos
+                            color = MetallicGold,
+                            radius = 12f,
+                            center = basePos
                         )
                         drawCircle(
-                            color = SoftGoldHighlight,
+                            color = EspressoBrown,
                             radius = 5f,
-                            center = vPos
+                            center = basePos
                         )
-
-                        val calloutText = "${trip.vehicleName} • ${trip.currentSpeedKmh} km/j"
-                        val measuredCallout = textMeasurer.measure(
-                            text = calloutText,
+                        val baseLabel = textMeasurer.measure(
+                            text = "POS UTAMA SR",
                             style = TextStyle(
                                 color = SoftGoldHighlight,
-                                fontSize = if (isFocused) 11.sp else 10.sp,
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         )
-                        val tagW = measuredCallout.size.width + 18f
-                        val tagH = measuredCallout.size.height + 10f
-                        val tagTopLeft = Offset(vPos.x - tagW / 2f, vPos.y - 48f)
-
+                        val baseTagW = baseLabel.size.width + 14f
+                        val baseTagH = baseLabel.size.height + 6f
+                        val baseTagOffset = Offset(basePos.x - baseTagW / 2f, basePos.y - 35f)
                         drawRoundRect(
-                            color = EspressoBrown.copy(alpha = 0.96f),
-                            topLeft = tagTopLeft,
-                            size = Size(tagW, tagH),
-                            cornerRadius = CornerRadius(10f, 10f)
+                            color = EspressoBrown,
+                            topLeft = baseTagOffset,
+                            size = Size(baseTagW, baseTagH),
+                            cornerRadius = CornerRadius(6f, 6f)
                         )
                         drawRoundRect(
                             color = MetallicGold,
-                            topLeft = tagTopLeft,
-                            size = Size(tagW, tagH),
-                            cornerRadius = CornerRadius(10f, 10f),
-                            style = Stroke(width = if (isFocused) 2.5f else 1.5f)
+                            topLeft = baseTagOffset,
+                            size = Size(baseTagW, baseTagH),
+                            cornerRadius = CornerRadius(6f, 6f),
+                            style = Stroke(width = 1.2f)
                         )
                         drawText(
-                            textLayoutResult = measuredCallout,
-                            topLeft = Offset(tagTopLeft.x + 9f, tagTopLeft.y + 5f)
+                            textLayoutResult = baseLabel,
+                            topLeft = Offset(baseTagOffset.x + 7f, baseTagOffset.y + 3f)
                         )
                     }
-                }
 
-                // Top-Left Badge: OpenStreetMap Live Status
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = VintageCardCream.copy(alpha = 0.94f),
-                    border = BorderStroke(1.dp, AntiqueGold),
-                    shadowElevation = 3.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Explore,
-                            contentDescription = "OpenStreetMap",
-                            tint = EspressoBrown,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
-                            Text(
-                                text = "OPENSTREETMAP LIVE (Z$osmZoom)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = EspressoBrown,
-                                fontWeight = FontWeight.Bold
+                    // 5. Smoothly Gliding Live Vehicle Markers
+                    activeTrips.forEach { trip ->
+                        val isFocused = selectedTrip?.id == trip.id
+                        val smoothCoords = animatedVehiclePositions[trip.id]
+                        val vLat = smoothCoords?.first ?: trip.currentLat
+                        val vLng = smoothCoords?.second ?: trip.currentLng
+                        val vPos = project(vLat, vLng)
+
+                        if (vPos.x in -150f..(w + 150f) && vPos.y in -150f..(h + 150f)) {
+                            drawCircle(
+                                color = if (isFocused) {
+                                    EspressoBrown.copy(alpha = pulseAlpha * 0.65f)
+                                } else {
+                                    VintageGreenSuccess.copy(alpha = pulseAlpha * 0.65f)
+                                },
+                                radius = (if (isFocused) 28f else 22f) * pulseRadiusMultiplier,
+                                center = vPos
                             )
-                            Text(
-                                text = if (followSelectedVehicle) "Mengikuti posisi mobil otomatis" else "Mode geser bebas (Ketuk Pusat untuk fokus)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SoftMochaText,
-                                fontSize = 10.sp
+
+                            drawCircle(
+                                color = if (isFocused) MetallicGold else AntiqueGold,
+                                radius = if (isFocused) 23f else 18f,
+                                center = vPos
+                            )
+                            drawCircle(
+                                color = if (isFocused) EspressoBrown else RichLeatherBrown,
+                                radius = if (isFocused) 18f else 14f,
+                                center = vPos
+                            )
+                            drawCircle(
+                                color = SoftGoldHighlight,
+                                radius = 5f,
+                                center = vPos
+                            )
+
+                            val calloutText = "${trip.vehicleName} • ${trip.currentSpeedKmh} km/j"
+                            val measuredCallout = textMeasurer.measure(
+                                text = calloutText,
+                                style = TextStyle(
+                                    color = SoftGoldHighlight,
+                                    fontSize = if (isFocused) 11.sp else 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                            val tagW = measuredCallout.size.width + 18f
+                            val tagH = measuredCallout.size.height + 10f
+                            val tagTopLeft = Offset(vPos.x - tagW / 2f, vPos.y - 48f)
+
+                            drawRoundRect(
+                                color = EspressoBrown.copy(alpha = 0.96f),
+                                topLeft = tagTopLeft,
+                                size = Size(tagW, tagH),
+                                cornerRadius = CornerRadius(10f, 10f)
+                            )
+                            drawRoundRect(
+                                color = MetallicGold,
+                                topLeft = tagTopLeft,
+                                size = Size(tagW, tagH),
+                                cornerRadius = CornerRadius(10f, 10f),
+                                style = Stroke(width = if (isFocused) 2.5f else 1.5f)
+                            )
+                            drawText(
+                                textLayoutResult = measuredCallout,
+                                topLeft = Offset(tagTopLeft.x + 9f, tagTopLeft.y + 5f)
                             )
                         }
                     }
                 }
 
-                // Bottom-Left Mandatory OpenStreetMap Attribution Pill
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(8.dp),
-                    shape = RoundedCornerShape(6.dp),
-                    color = VintageCardCream.copy(alpha = 0.88f),
-                    border = BorderStroke(0.5.dp, VintageWarmBorder)
-                ) {
-                    Text(
-                        text = "© OpenStreetMap contributors",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = DeepInkBrown,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-
-                // Top-Right Map Controls: Zoom In, Zoom Out, Center on Vehicle/Base, Toggle Vintage Filter, Step Forward
+                // Floating Top Overlay Bar: Active Vehicle Chips + GPS & Popup Fullscreen Button
                 Column(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Compact Live OSM Status Pill
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = VintageCardCream.copy(alpha = 0.94f),
+                            border = BorderStroke(1.dp, AntiqueGold),
+                            shadowElevation = 3.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Explore,
+                                    contentDescription = "OpenStreetMap",
+                                    tint = EspressoBrown,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = String.format(java.util.Locale.US, "OSM LIVE Z%.1f", smoothZoom),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = EspressoBrown,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // GPS Sync Pill
+                            Surface(
+                                onClick = {
+                                    permissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                },
+                                shape = RoundedCornerShape(50),
+                                color = if (isGpsEnabled) VintageGreenBg.copy(alpha = 0.95f) else SoftGoldHighlight.copy(alpha = 0.95f),
+                                border = BorderStroke(1.dp, if (isGpsEnabled) VintageGreenSuccess else AntiqueGold),
+                                shadowElevation = 3.dp,
+                                modifier = Modifier.testTag("gps_sync_button")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.GpsFixed,
+                                        contentDescription = "Sinkron GPS HP",
+                                        tint = if (isGpsEnabled) VintageGreenSuccess else EspressoBrown,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isGpsEnabled) "GPS Aktif" else "GPS HP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isGpsEnabled) VintageGreenSuccess else DeepInkBrown,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Button to Launch Almost Full-Screen Map Popup (when viewing inside tab)
+                            if (!isInsidePopup && onOpenFullPopup != null) {
+                                Surface(
+                                    onClick = onOpenFullPopup,
+                                    shape = RoundedCornerShape(50),
+                                    color = EspressoBrown,
+                                    border = BorderStroke(1.2.dp, MetallicGold),
+                                    shadowElevation = 4.dp,
+                                    modifier = Modifier.testTag("open_fullscreen_map_popup_button")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Fullscreen,
+                                            contentDescription = "Pop Up Layar Penuh",
+                                            tint = MetallicGold,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Pop Up Penuh",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = SoftGoldHighlight,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Floating Vehicle Selector Chips right over the top of the map
+                    if (activeTrips.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(activeTrips, key = { it.id }) { trip ->
+                                val isSelected = selectedTrip?.id == trip.id
+                                Surface(
+                                    onClick = {
+                                        onSelectTrip(trip.id)
+                                        followSelectedVehicle = true
+                                        centerLat = trip.currentLat
+                                        centerLng = trip.currentLng
+                                    },
+                                    shape = RoundedCornerShape(50),
+                                    color = if (isSelected) EspressoBrown else VintageCardCream.copy(alpha = 0.94f),
+                                    border = BorderStroke(
+                                        width = if (isSelected) 1.5.dp else 1.dp,
+                                        color = if (isSelected) MetallicGold else AntiqueGold
+                                    ),
+                                    shadowElevation = 3.dp,
+                                    modifier = Modifier.testTag("map_vehicle_chip_${trip.vehicleId}")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = vehicleIconFor(trip.vehicleId),
+                                            contentDescription = trip.vehicleName,
+                                            tint = if (isSelected) MetallicGold else EspressoBrown,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = "${trip.vehicleName} • ${trip.currentSpeedKmh} km/j",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isSelected) SoftGoldHighlight else DeepInkBrown,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Right-Side Floating Map Controls
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     MapControlButton(
                         icon = Icons.Default.Add,
                         contentDescription = "Perbesar Peta Jalan (Zoom In)",
-                        onClick = { osmZoom = (osmZoom + 1).coerceAtMost(17) }
+                        onClick = { targetZoom = (targetZoom + 0.8f).coerceAtMost(17.5f) }
                     )
                     MapControlButton(
                         icon = Icons.Default.Remove,
                         contentDescription = "Perkecil Peta Jalan (Zoom Out)",
-                        onClick = { osmZoom = (osmZoom - 1).coerceAtLeast(10) }
+                        onClick = { targetZoom = (targetZoom - 0.8f).coerceAtLeast(10.5f) }
                     )
                     MapControlButton(
                         icon = Icons.Default.MyLocation,
@@ -720,7 +952,7 @@ fun VintageRealTimeMapPanel(
                             followSelectedVehicle = true
                             centerLat = selectedTrip?.currentLat ?: FleetRepository.BASE_LAT
                             centerLng = selectedTrip?.currentLng ?: FleetRepository.BASE_LNG
-                            osmZoom = 14
+                            targetZoom = 14.2f
                         }
                     )
                     MapControlButton(
@@ -734,196 +966,182 @@ fun VintageRealTimeMapPanel(
                         onClick = onAdvanceManualStep
                     )
                 }
-            }
-        }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Bottom Live Telemetry Detail Card for Selected Active Vehicle
-        if (selectedTrip != null) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("selected_trip_telemetry_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = VintageCardCream),
-                border = BorderStroke(1.5.dp, AntiqueGold),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(EspressoBrown),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = vehicleIconFor(selectedTrip.vehicleId),
-                                    contentDescription = selectedTrip.vehicleName,
-                                    tint = MetallicGold,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "${selectedTrip.vehicleName} • ${selectedTrip.vehiclePlate}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = DeepInkBrown
-                                )
-                                Text(
-                                    text = "Pembawa: ${selectedTrip.driverName} (${selectedTrip.driverDivision})",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = SoftMochaText
-                                )
-                            }
-                        }
-
-                        TripStatusBadge(status = selectedTrip.tripStatusEnum)
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Telemetry Coordinates & Speed Row
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = VintageParchmentSurface,
-                        border = BorderStroke(1.dp, VintageWarmBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = "Koordinat",
-                                    tint = EspressoBrown,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = String.format(
-                                        java.util.Locale.US,
-                                        "OSM %.4f, %.4f",
-                                        selectedTrip.currentLat,
-                                        selectedTrip.currentLng
-                                    ),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = DeepInkBrown
-                                )
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Speed,
-                                    contentDescription = "Kecepatan",
-                                    tint = VintageGreenSuccess,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "${selectedTrip.currentSpeedKmh} km/jam",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = VintageGreenSuccess,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Rute Tujuan: Pos Utama SR → ${selectedTrip.parsedDestinations.joinToString(" → ")}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DeepInkBrown,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    LinearProgressIndicator(
-                        progress = { selectedTrip.progressPercent.coerceIn(0.05f, 1f) },
+                // Bottom-Left Compact Collapsible Telemetry Overlay Card on top of Map
+                if (selectedTrip != null) {
+                    Card(
                         modifier = Modifier
+                            .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .height(7.dp)
-                            .clip(RoundedCornerShape(50)),
-                        color = AntiqueGold,
-                        trackColor = VintageParchmentSurface
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(10.dp)
+                            .testTag("selected_trip_telemetry_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = VintageCardCream.copy(alpha = 0.96f)
+                        ),
+                        border = BorderStroke(1.5.dp, AntiqueGold),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                try {
-                                    val uri = Uri.parse(
-                                        "geo:${selectedTrip.currentLat},${selectedTrip.currentLng}?q=${selectedTrip.currentLat},${selectedTrip.currentLng}(${Uri.encode(selectedTrip.vehicleName)})"
-                                    )
-                                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            // Always-visible compact summary bar
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isTelemetryExpanded = !isTelemetryExpanded },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(EspressoBrown),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = vehicleIconFor(selectedTrip.vehicleId),
+                                            contentDescription = selectedTrip.vehicleName,
+                                            tint = MetallicGold,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "${selectedTrip.vehicleName} (${selectedTrip.vehiclePlate}) • ${selectedTrip.currentSpeedKmh} km/j",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = DeepInkBrown,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Pembawa: ${selectedTrip.driverName} → ${selectedTrip.parsedDestinations.lastOrNull() ?: ""}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = SoftMochaText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
-                            },
-                            border = BorderStroke(1.dp, AntiqueGold),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Navigation,
-                                contentDescription = "Buka Navigasi Eksternal",
-                                tint = EspressoBrown,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Rute Eksternal",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = EspressoBrown
-                            )
-                        }
 
-                        Button(
-                            onClick = { onCompleteTrip(selectedTrip) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = EspressoBrown,
-                                contentColor = SoftGoldHighlight
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                            modifier = Modifier.testTag("complete_trip_map_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Selesai",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Selesai Perjalanan",
-                                style = MaterialTheme.typography.labelMedium
-                            )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        onClick = { isTelemetryExpanded = !isTelemetryExpanded },
+                                        shape = RoundedCornerShape(50),
+                                        color = VintageParchmentSurface,
+                                        border = BorderStroke(1.dp, VintageWarmBorder)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = if (isTelemetryExpanded) "Ringkas" else "Detail",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = EspressoBrown,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Icon(
+                                                imageVector = if (isTelemetryExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                                contentDescription = "Buka/Tutup Detail",
+                                                tint = EspressoBrown,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            AnimatedVisibility(visible = isTelemetryExpanded) {
+                                Column {
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        text = "Rute: Pos Utama SR → ${selectedTrip.parsedDestinations.joinToString(" → ")}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = DeepInkBrown,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    LinearProgressIndicator(
+                                        progress = { selectedTrip.progressPercent.coerceIn(0.05f, 1f) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(50)),
+                                        color = AntiqueGold,
+                                        trackColor = VintageParchmentSurface
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                try {
+                                                    val uri = Uri.parse(
+                                                        "geo:${selectedTrip.currentLat},${selectedTrip.currentLng}?q=${selectedTrip.currentLat},${selectedTrip.currentLng}(${Uri.encode(selectedTrip.vehicleName)})"
+                                                    )
+                                                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {
+                                                }
+                                            },
+                                            border = BorderStroke(1.dp, AntiqueGold),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Navigation,
+                                                contentDescription = "Rute Eksternal",
+                                                tint = EspressoBrown,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Navigasi",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = EspressoBrown
+                                            )
+                                        }
+
+                                        Button(
+                                            onClick = { onCompleteTrip(selectedTrip) },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = EspressoBrown,
+                                                contentColor = SoftGoldHighlight
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier.testTag("complete_trip_map_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Selesai",
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(
+                                                text = "Selesai Perjalanan",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
