@@ -136,7 +136,7 @@ fun UserMonitorDashboardScreen(
         containerColor = VintageCreamBg,
         topBar = {
             VintageTopBar(
-                title = "Pengguna & Pemantau SR",
+                title = "Armada & Rencana SR",
                 subtitle = "${uiState.session.loggedInUserName} • ${uiState.session.loggedInUserDivision}",
                 currentRole = UserRole.USER_MONITOR,
                 pendingCountForBadge = uiState.pendingTrips.size,
@@ -156,10 +156,16 @@ fun UserMonitorDashboardScreen(
                     icon = {
                         Icon(
                             imageVector = Icons.Default.DirectionsCar,
-                            contentDescription = "Rencana & Armada"
+                            contentDescription = "Armada & Izin"
                         )
                     },
-                    label = { Text("Rencana & Armada") },
+                    label = {
+                        Text(
+                            text = "Armada & Izin",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("user_tab_fleet")
                 )
@@ -182,11 +188,17 @@ fun UserMonitorDashboardScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Map,
-                                contentDescription = "Pantau Peta Live"
+                                contentDescription = "Peta Live"
                             )
                         }
                     },
-                    label = { Text("Pantau Peta Live") },
+                    label = {
+                        Text(
+                            text = "Peta Live",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("user_tab_live_map")
                 )
@@ -197,10 +209,16 @@ fun UserMonitorDashboardScreen(
                     icon = {
                         Icon(
                             imageVector = Icons.Default.History,
-                            contentDescription = "Rekap & Log"
+                            contentDescription = "Rekap & Rute"
                         )
                     },
-                    label = { Text("Rekap & Rute") },
+                    label = {
+                        Text(
+                            text = "Rekap & Rute",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("user_tab_history")
                 )
@@ -466,14 +484,17 @@ private fun VehicleStatusOverviewCard(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = vehicle.name,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = DeepInkBrown
+                                style = MaterialTheme.typography.titleMedium,
+                                color = DeepInkBrown,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = VintageParchmentSurface,
@@ -491,10 +512,13 @@ private fun VehicleStatusOverviewCard(
                         Text(
                             text = "${vehicle.category} • BBM ${vehicle.fuelLevelPercent}%",
                             style = MaterialTheme.typography.bodySmall,
-                            color = SoftMochaText
+                            color = SoftMochaText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Availability Badge
                 when {
@@ -658,18 +682,26 @@ private fun ActiveOrPendingTripCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Icon(
                         imageVector = vehicleIconFor(trip.vehicleId),
                         contentDescription = trip.vehicleName,
                         tint = EspressoBrown,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "${trip.vehicleName} (${trip.vehiclePlate})",
                         style = MaterialTheme.typography.titleMedium,
-                        color = DeepInkBrown
+                        color = DeepInkBrown,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 TripStatusBadge(status = trip.tripStatusEnum)

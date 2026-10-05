@@ -10,14 +10,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -43,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,21 +97,24 @@ fun VintageTopBar(
                         colors = listOf(EspressoBrown, RichLeatherBrown)
                     )
                 )
+                .windowInsetsPadding(WindowInsets.statusBars)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(
                                 Brush.linearGradient(
@@ -115,31 +125,30 @@ fun VintageTopBar(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (currentRole == UserRole.SECURITY) {
-                                Icons.Default.Shield
-                            } else {
-                                Icons.Default.DirectionsCar
+                            imageVector = when (currentRole) {
+                                UserRole.SECURITY -> Icons.Default.Shield
+                                UserRole.SCHOOL_ADMIN -> Icons.Default.AdminPanelSettings
+                                else -> Icons.Default.DirectionsCar
                             },
                             contentDescription = "Logo Peran Bawa Mobil SR",
                             tint = DeepInkBrown,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = SoftGoldHighlight,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = SoftGoldHighlight,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = VintageCreamBg.copy(alpha = 0.85f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VintageCreamBg.copy(alpha = 0.88f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -148,9 +157,9 @@ fun VintageTopBar(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Quick Role Switch Pill for convenient single-device testing
+                    // Compact Quick Role Switch Pill so title & user name have plenty of room
                     Surface(
                         onClick = onQuickSwitchRole,
                         shape = RoundedCornerShape(50),
@@ -159,32 +168,33 @@ fun VintageTopBar(
                         modifier = Modifier.testTag("switch_role_button")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SwapHoriz,
                                 contentDescription = "Ganti Peran",
                                 tint = MetallicGold,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = when (currentRole) {
-                                    UserRole.USER_MONITOR -> "Ke Keamanan"
-                                    UserRole.SECURITY -> "Ke Admin Sekolah"
-                                    UserRole.SCHOOL_ADMIN -> "Ke Pengguna"
-                                    else -> "Ganti Peran"
+                                    UserRole.USER_MONITOR -> "Keamanan"
+                                    UserRole.SECURITY -> "Admin"
+                                    UserRole.SCHOOL_ADMIN -> "Pengguna"
+                                    else -> "Peran"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = SoftGoldHighlight,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
                             )
                             if (currentRole == UserRole.USER_MONITOR && pendingCountForBadge > 0) {
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Box(
                                     modifier = Modifier
-                                        .size(18.dp)
+                                        .size(16.dp)
                                         .clip(CircleShape)
                                         .background(MetallicGold),
                                     contentAlignment = Alignment.Center
@@ -194,7 +204,7 @@ fun VintageTopBar(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = DeepInkBrown,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
+                                        fontSize = 9.sp
                                     )
                                 }
                             }
@@ -205,15 +215,27 @@ fun VintageTopBar(
                         onClick = onLogout,
                         shape = RoundedCornerShape(50),
                         color = Color.Transparent,
-                        border = BorderStroke(1.dp, VintageWarmBorder.copy(alpha = 0.5f)),
+                        border = BorderStroke(1.dp, VintageWarmBorder.copy(alpha = 0.55f)),
                         modifier = Modifier.testTag("logout_button")
                     ) {
-                        Text(
-                            text = "Keluar",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = VintageCreamBg,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Keluar",
+                                tint = VintageCreamBg,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "Keluar",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = VintageCreamBg,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -305,14 +327,14 @@ fun TripStatusBadge(
             VintageAmberBg,
             AntiqueGold,
             VintageAmberPending,
-            "Menunggu Persetujuan",
+            "Menunggu Izin",
             Icons.Default.Schedule
         )
         TripStatus.IN_TRANSIT -> Quintuple(
             VintageGreenBg,
             VintageGreenSuccess,
             VintageGreenSuccess,
-            "Dalam Perjalanan",
+            "Sedang Jalan",
             Icons.Default.DirectionsCar
         )
         TripStatus.COMPLETED -> Quintuple(
@@ -326,7 +348,7 @@ fun TripStatusBadge(
             VintageCrimsonBg,
             VintageCrimsonReject,
             VintageCrimsonReject,
-            "Ditolak Keamanan",
+            "Ditolak Pos",
             Icons.Default.Close
         )
     }
@@ -338,21 +360,23 @@ fun TripStatusBadge(
         border = BorderStroke(1.dp, borderColor)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = labelText,
                 tint = textColor,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(13.dp)
             )
-            Spacer(modifier = Modifier.width(5.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = labelText,
                 style = MaterialTheme.typography.labelSmall,
                 color = textColor,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -395,13 +419,18 @@ fun VintageOrnamentalDivider(
             shape = RoundedCornerShape(50),
             color = VintageParchmentSurface,
             border = BorderStroke(1.dp, AntiqueGold),
-            modifier = Modifier.padding(horizontal = 10.dp)
+            modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .widthIn(max = 280.dp)
         ) {
             Text(
                 text = label.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = EspressoBrown,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
             )
         }

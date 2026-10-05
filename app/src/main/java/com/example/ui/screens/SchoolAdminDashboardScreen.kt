@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AccountRegistrationStatus
@@ -232,8 +233,8 @@ fun SchoolAdminDashboardScreen(
         },
         bottomBar = {
             NavigationBar(
-                containerColor = VintageParchmentSurface,
-                tonalElevation = 8.dp,
+                containerColor = EspressoBrown,
+                contentColor = SoftGoldHighlight,
                 modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
             ) {
                 NavigationBarItem(
@@ -244,8 +245,8 @@ fun SchoolAdminDashboardScreen(
                             badge = {
                                 if (uiState.pendingApprovalAccounts.isNotEmpty()) {
                                     Badge(
-                                        containerColor = CopperRustRed,
-                                        contentColor = Color.White
+                                        containerColor = MetallicGold,
+                                        contentColor = DeepInkBrown
                                     ) {
                                         Text("${uiState.pendingApprovalAccounts.size}")
                                     }
@@ -258,7 +259,14 @@ fun SchoolAdminDashboardScreen(
                             )
                         }
                     },
-                    label = { Text("Verifikasi Akun (${uiState.pendingApprovalAccounts.size})") },
+                    label = {
+                        Text(
+                            text = "Verifikasi (${uiState.pendingApprovalAccounts.size})",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("admin_tab_approvals")
                 )
 
@@ -271,7 +279,14 @@ fun SchoolAdminDashboardScreen(
                             contentDescription = "Data Personel"
                         )
                     },
-                    label = { Text("Personel (${uiState.approvedAccounts.size})") },
+                    label = {
+                        Text(
+                            text = "Personel (${uiState.approvedAccounts.size})",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("admin_tab_personnel")
                 )
 
@@ -284,7 +299,14 @@ fun SchoolAdminDashboardScreen(
                             contentDescription = "Peta Armada"
                         )
                     },
-                    label = { Text("Peta Armada (${uiState.activeTrips.size})") },
+                    label = {
+                        Text(
+                            text = "Peta (${uiState.activeTrips.size})",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("admin_tab_map")
                 )
             }
@@ -500,7 +522,10 @@ fun SchoolAdminDashboardScreen(
                                 onOpenFullPopup = {
                                     onOpenMapPopup(uiState.session.focusedMapTripId)
                                 },
-                                allTrips = uiState.allTrips
+                                allTrips = uiState.allTrips,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(480.dp)
                             )
                         }
                     }

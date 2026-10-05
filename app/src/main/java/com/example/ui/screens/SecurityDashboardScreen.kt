@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.TripRequestEntity
 import com.example.data.UserRole
@@ -131,8 +132,8 @@ fun SecurityDashboardScreen(
         containerColor = VintageCreamBg,
         topBar = {
             VintageTopBar(
-                title = "Pos Keamanan Bawa Mobil SR",
-                subtitle = "Petugas Piket: ${uiState.session.loggedInSecurityOfficer}",
+                title = "Pos Keamanan SR",
+                subtitle = "Piket: ${uiState.session.loggedInSecurityOfficer}",
                 currentRole = UserRole.SECURITY,
                 pendingCountForBadge = uiState.pendingTrips.size,
                 onQuickSwitchRole = onQuickSwitchRole,
@@ -163,11 +164,17 @@ fun SecurityDashboardScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.FactCheck,
-                                contentDescription = "Persetujuan Izin"
+                                contentDescription = "Verifikasi Izin"
                             )
                         }
                     },
-                    label = { Text("Persetujuan Izin") },
+                    label = {
+                        Text(
+                            text = "Verifikasi Izin",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("security_tab_approvals")
                 )
@@ -190,11 +197,17 @@ fun SecurityDashboardScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Map,
-                                contentDescription = "Pantau Peta Real-Time"
+                                contentDescription = "Peta Live"
                             )
                         }
                     },
-                    label = { Text("Peta Real-Time") },
+                    label = {
+                        Text(
+                            text = "Peta Live",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("security_tab_map")
                 )
@@ -205,10 +218,16 @@ fun SecurityDashboardScreen(
                     icon = {
                         Icon(
                             imageVector = Icons.Default.History,
-                            contentDescription = "Log Pos"
+                            contentDescription = "Rekap & Log"
                         )
                     },
-                    label = { Text("Buku Log Pos") },
+                    label = {
+                        Text(
+                            text = "Rekap & Log",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("security_tab_logs")
                 )
@@ -427,18 +446,26 @@ private fun SecurityApprovalQueueTab(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            ) {
                                 Icon(
                                     imageVector = vehicleIconFor(trip.vehicleId),
                                     contentDescription = trip.vehicleName,
                                     tint = EspressoBrown,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "${trip.vehicleName} (${trip.vehiclePlate})",
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = DeepInkBrown
+                                    color = DeepInkBrown,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             TripStatusBadge(status = trip.tripStatusEnum)
@@ -639,11 +666,16 @@ private fun SecurityApprovalCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(EspressoBrown),
                         contentAlignment = Alignment.Center
                     ) {
@@ -651,20 +683,25 @@ private fun SecurityApprovalCard(
                             imageVector = vehicleIconFor(trip.vehicleId),
                             contentDescription = trip.vehicleName,
                             tint = MetallicGold,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "${trip.vehicleName} • ${trip.vehiclePlate}",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = DeepInkBrown
+                            style = MaterialTheme.typography.titleMedium,
+                            color = DeepInkBrown,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "Odometer Awal: ${trip.startOdometerKm} km",
                             style = MaterialTheme.typography.labelSmall,
-                            color = SoftMochaText
+                            color = SoftMochaText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
