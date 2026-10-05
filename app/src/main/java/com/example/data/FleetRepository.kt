@@ -103,190 +103,6 @@ class FleetRepository(private val dao: FleetDao) {
             )
         )
         dao.insertDestinations(defaultDestinations)
-
-        val now = System.currentTimeMillis()
-        // Seed 1 active trip (Avanza Veloz in transit with trail from SR), 1 pending trip (Gran Max waiting security approval), 1 completed trip (N-Max with full round-trip trail back to SR)
-        val sampleTrips = listOf(
-            TripRequestEntity(
-                vehicleId = "VH_VELOZ",
-                vehicleName = "Avanza Veloz",
-                vehiclePlate = "L 1925 SR",
-                driverName = "Bapak Hendra Wijaya",
-                driverDivision = "Guru",
-                purpose = "Penjemputan Tamu Direksi & Kunjungan Kantor Cabang",
-                destinationsText = "Kantor Cabang Pusat|Bandara Internasional Juanda T2",
-                destinationCoordsText = "-7.2654,112.7418;-7.3798,112.7869",
-                departureEstimate = "08:30 WIB",
-                returnEstimate = "14:00 WIB",
-                startOdometerKm = 42810,
-                status = TripStatus.IN_TRANSIT.name,
-                securityNotes = "Dokumen surat jalan & STNK lengkap. Disetujui keluar gerbang utama.",
-                approvedByOfficer = "Komandan Pos Suryo",
-                completedByOfficer = "",
-                currentLat = -7.2654,
-                currentLng = 112.7418,
-                currentSpeedKmh = 46,
-                progressPercent = 0.34f,
-                currentTargetIndex = 0,
-                isGpsRealDevice = false,
-                routeTrailCoordsText = "-7.2575,112.7521;-7.2595,112.7495;-7.2618,112.7465;-7.2638,112.7440;-7.2654,112.7418",
-                totalDistanceTraveledKm = 1.46,
-                endOdometerKm = 42812,
-                isArrivedBackAtSrGate = false,
-                approvedAt = now - 2400_000L,
-                completedAt = 0L,
-                createdAt = now - 3600_000L,
-                updatedAt = now - 60_000L
-            ),
-            TripRequestEntity(
-                vehicleId = "VH_GRANMAX",
-                vehicleName = "Gran Max",
-                vehiclePlate = "L 8841 SR",
-                driverName = "Mas Bagus Prasetyo",
-                driverDivision = "Dapur",
-                purpose = "Pengambilan Logistik Dapur & Distribusi Bahan Pangan Asrama",
-                destinationsText = "Gudang Logistik Utama SR|Workshop & Bengkel Resmi SR",
-                destinationCoordsText = "-7.3185,112.7712;-7.3091,112.7345",
-                departureEstimate = "09:45 WIB",
-                returnEstimate = "15:30 WIB",
-                startOdometerKm = 68190,
-                status = TripStatus.PENDING_APPROVAL.name,
-                securityNotes = "",
-                approvedByOfficer = "",
-                completedByOfficer = "",
-                currentLat = BASE_LAT,
-                currentLng = BASE_LNG,
-                currentSpeedKmh = 0,
-                progressPercent = 0f,
-                currentTargetIndex = 0,
-                isGpsRealDevice = false,
-                routeTrailCoordsText = "$BASE_LAT,$BASE_LNG",
-                totalDistanceTraveledKm = 0.0,
-                endOdometerKm = 68190,
-                isArrivedBackAtSrGate = false,
-                approvedAt = 0L,
-                completedAt = 0L,
-                createdAt = now - 900_000L,
-                updatedAt = now - 900_000L
-            ),
-            TripRequestEntity(
-                vehicleId = "VH_NMAX",
-                vehicleName = "N-Max",
-                vehiclePlate = "L 4029 SR",
-                driverName = "Rizky Pratama",
-                driverDivision = "TU Tendik",
-                purpose = "Antar Dokumen Resmi Sekolah ke Kantor Cabang & Kembali ke SR",
-                destinationsText = "Kantor Cabang Pusat|SPBU & Pusat Pengisian BBM",
-                destinationCoordsText = "-7.2654,112.7418;-7.2720,112.7505",
-                departureEstimate = "07:15 WIB",
-                returnEstimate = "08:20 WIB",
-                startOdometerKm = 15420,
-                status = TripStatus.COMPLETED.name,
-                securityNotes = "Unit N-Max telah kembali ke Pos Utama SR dengan aman & odometer dicatat oleh Keamanan.",
-                approvedByOfficer = "Komandan Pos Suryo",
-                completedByOfficer = "Komandan Pos Suryo",
-                currentLat = BASE_LAT,
-                currentLng = BASE_LNG,
-                currentSpeedKmh = 0,
-                progressPercent = 1.0f,
-                currentTargetIndex = 1,
-                isGpsRealDevice = false,
-                routeTrailCoordsText = "-7.2575,112.7521;-7.2612,112.7470;-7.2654,112.7418;-7.2690,112.7462;-7.2720,112.7505;-7.2648,112.7514;-7.2575,112.7521",
-                totalDistanceTraveledKm = 4.38,
-                endOdometerKm = 15425,
-                isArrivedBackAtSrGate = true,
-                approvedAt = now - 6800_000L,
-                completedAt = now - 4200_000L,
-                createdAt = now - 7200_000L,
-                updatedAt = now - 4200_000L
-            )
-        )
-        sampleTrips.forEach { dao.insertTripRequest(it) }
-        ensureUserAccountsSeedData()
-    }
-
-    suspend fun ensureUserAccountsSeedData() {
-        if (dao.getUserAccountCount() > 0) return
-        val now = System.currentTimeMillis()
-        val sampleAccounts = listOf(
-            UserAccountEntity(
-                email = "ustadz.fauzi@sekolahsr.sch.id",
-                password = "Password123",
-                initialAccountCategory = "PENGGUNA",
-                verificationCode = "739201",
-                isEmailVerified = true,
-                fullName = "Ustadz Ahmad Fauzi, S.Pd.",
-                address = "Jl. Ketintang Baru III No. 24, Surabaya",
-                phoneNumber = "081234567801",
-                taskRole = SchoolTaskType.WALI_ASRAMA.label,
-                selfPhotoUri = "preset://self_wali_asrama",
-                ktpPhotoUri = "preset://ktp_verified_357801",
-                isProfileSubmitted = true,
-                accountStatus = AccountRegistrationStatus.PENDING_ADMIN_APPROVAL.name,
-                adminNotes = "",
-                approvedByAdmin = "",
-                createdAt = now - 1800_000L,
-                updatedAt = now - 600_000L
-            ),
-            UserAccountEntity(
-                email = "bambang.sec@sekolahsr.sch.id",
-                password = "Password123",
-                initialAccountCategory = "KEAMANAN",
-                verificationCode = "518402",
-                isEmailVerified = true,
-                fullName = "Pak Bambang Sudibyo",
-                address = "Jl. Wonokromo Tengah No. 11, Surabaya",
-                phoneNumber = "081355779902",
-                taskRole = SchoolTaskType.KEAMANAN.label,
-                selfPhotoUri = "preset://self_keamanan",
-                ktpPhotoUri = "preset://ktp_verified_357802",
-                isProfileSubmitted = true,
-                accountStatus = AccountRegistrationStatus.PENDING_ADMIN_APPROVAL.name,
-                adminNotes = "",
-                approvedByAdmin = "",
-                createdAt = now - 2400_000L,
-                updatedAt = now - 900_000L
-            ),
-            UserAccountEntity(
-                email = "andi.guru@sekolahsr.sch.id",
-                password = "Password123",
-                initialAccountCategory = "PENGGUNA",
-                verificationCode = "112233",
-                isEmailVerified = true,
-                fullName = "Bapak Andi Pratama, M.Pd.",
-                address = "Jl. Raya Darmo Permai II No. 18, Surabaya",
-                phoneNumber = "081299887711",
-                taskRole = SchoolTaskType.GURU.label,
-                selfPhotoUri = "preset://self_guru",
-                ktpPhotoUri = "preset://ktp_verified_357803",
-                isProfileSubmitted = true,
-                accountStatus = AccountRegistrationStatus.APPROVED.name,
-                adminNotes = "Identitas KTP & Surat Tugas Guru sesuai. Disetujui menggunakan armada sekolah.",
-                approvedByAdmin = "Admin Sekolah (eccko1101)",
-                createdAt = now - 86_400_000L,
-                updatedAt = now - 72_000_000L
-            ),
-            UserAccountEntity(
-                email = "suryo.pos@sekolahsr.sch.id",
-                password = "Password123",
-                initialAccountCategory = "KEAMANAN",
-                verificationCode = "445566",
-                isEmailVerified = true,
-                fullName = "Komandan Pos Suryo",
-                address = "Asrama Kompleks Sekolah SR Blok A-1",
-                phoneNumber = "081344556677",
-                taskRole = SchoolTaskType.KEAMANAN.label,
-                selfPhotoUri = "preset://self_komandan",
-                ktpPhotoUri = "preset://ktp_verified_357804",
-                isProfileSubmitted = true,
-                accountStatus = AccountRegistrationStatus.APPROVED.name,
-                adminNotes = "Kepala Regu Keamanan Sekolah. Akses verifikasi keluar-masuk armada aktif.",
-                approvedByAdmin = "Admin Sekolah (eccko1101)",
-                createdAt = now - 90_000_000L,
-                updatedAt = now - 80_000_000L
-            )
-        )
-        dao.insertUserAccounts(sampleAccounts)
     }
 
     suspend fun getAccountByEmail(email: String): UserAccountEntity? {
@@ -525,7 +341,7 @@ class FleetRepository(private val dao: FleetDao) {
 
     suspend fun completeTrip(
         tripId: Int,
-        officerName: String = "Komandan Pos Suryo",
+        officerName: String = "Petugas Pos Keamanan",
         completionNote: String = ""
     ) {
         val trip = dao.getTripById(tripId) ?: return
@@ -564,7 +380,7 @@ class FleetRepository(private val dao: FleetDao) {
         dao.updateTripRequest(
             trip.copy(
                 status = TripStatus.COMPLETED.name,
-                completedByOfficer = officerName.ifBlank { "Komandan Pos Suryo" },
+                completedByOfficer = officerName.ifBlank { "Petugas Pos Keamanan" },
                 currentLat = BASE_LAT,
                 currentLng = BASE_LNG,
                 currentSpeedKmh = 0,

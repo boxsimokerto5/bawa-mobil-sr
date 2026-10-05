@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         TripRequestEntity::class,
         UserAccountEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

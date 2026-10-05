@@ -35,14 +35,14 @@ import kotlinx.coroutines.launch
 data class AppSessionState(
     val currentRole: UserRole = UserRole.NONE,
     val activeAccountId: Int? = null,
-    val loggedInUserName: String = "Bapak Andi Pratama",
-    val loggedInUserDivision: String = "Guru",
+    val loggedInUserName: String = "",
+    val loggedInUserDivision: String = "",
     val loggedInUserEmail: String? = null,
     val authMethodBadge: String? = null,
     val isAuthLoading: Boolean = false,
     val authStatusMessage: String? = null,
-    val loggedInSecurityOfficer: String = "Komandan Pos Suryo",
-    val loggedInAdminUsername: String = "eccko1101",
+    val loggedInSecurityOfficer: String = "",
+    val loggedInAdminUsername: String = "",
     val isTripFormOpen: Boolean = false,
     val isMapPopupOpen: Boolean = false,
     val preselectedVehicleId: String? = null,
@@ -276,7 +276,7 @@ class FleetViewModel(
     }
 
     fun loginAsSecurity(officerName: String) {
-        val cleanOfficer = officerName.trim().ifEmpty { "Komandan Pos Suryo" }
+        val cleanOfficer = officerName.trim().ifEmpty { "Petugas Pos Keamanan" }
         _session.update {
             it.copy(
                 currentRole = UserRole.SECURITY,
@@ -584,7 +584,7 @@ class FleetViewModel(
         } else {
             _session.update {
                 it.copy(
-                    authStatusMessage = "Username atau Password Admin Sekolah tidak valid! Gunakan user: eccko1101"
+                    authStatusMessage = "Username atau Password Admin Sekolah tidak valid."
                 )
             }
         }
@@ -798,7 +798,7 @@ class FleetViewModel(
     }
 
     fun completeActiveTrip(tripId: Int, vehicleName: String) {
-        val officer = _session.value.loggedInSecurityOfficer.ifBlank { "Komandan Pos Suryo" }
+        val officer = _session.value.loggedInSecurityOfficer.ifBlank { "Petugas Pos Keamanan" }
         viewModelScope.launch(Dispatchers.IO) {
             repository.completeTrip(
                 tripId = tripId,

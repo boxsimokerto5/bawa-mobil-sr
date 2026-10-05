@@ -80,6 +80,8 @@ import com.example.data.TripRequestEntity
 import com.example.data.UserAccountEntity
 import com.example.data.UserRole
 import com.example.ui.FleetDashboardUiState
+import com.example.ui.components.VintageAboutAndPrivacyDialog
+import com.example.ui.components.VintageAboutPrivacyFooterCard
 import com.example.ui.components.VintageNearFullScreenMapPopup
 import com.example.ui.components.VintageNotificationBanner
 import com.example.ui.components.VintageOrnamentalDivider
@@ -529,6 +531,33 @@ fun SchoolAdminDashboardScreen(
                             )
                         }
                     }
+                }
+
+                // Tentang Kami & Privacy Policy Section on School Admin Dashboard
+                item {
+                    var showDialog by rememberSaveable { mutableStateOf(false) }
+                    var dialogTab by rememberSaveable { mutableIntStateOf(0) }
+
+                    if (showDialog) {
+                        VintageAboutAndPrivacyDialog(
+                            initialTab = dialogTab,
+                            onDismiss = { showDialog = false }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    VintageOrnamentalDivider(label = "TENTANG KAMI & PRIVACY POLICY")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    VintageAboutPrivacyFooterCard(
+                        onOpenAboutUs = {
+                            dialogTab = 0
+                            showDialog = true
+                        },
+                        onOpenPrivacyPolicy = {
+                            dialogTab = 1
+                            showDialog = true
+                        }
+                    )
                 }
             }
         }

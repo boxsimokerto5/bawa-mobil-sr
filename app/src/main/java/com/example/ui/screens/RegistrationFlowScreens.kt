@@ -871,7 +871,7 @@ fun CompleteProfileFormScreen(
 
                     PhotoUploadCard(
                         title = if (selfPhotoUri.isNotBlank()) "Foto Diri Terlampir" else "Belum Ada Foto Diri",
-                        subtitle = "Pilih dari Galeri HP atau gunakan Foto Pas Resmi",
+                        subtitle = "Pilih foto diri resmi yang jelas dari Galeri perangkat Anda",
                         photoUri = selfPhotoUri,
                         isKtpCard = false,
                         onPickFromGallery = {
@@ -879,12 +879,7 @@ fun CompleteProfileFormScreen(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        onUsePresetSample = {
-                            selfPhotoUri = "preset://foto_diri_${selectedTask.lowercase().replace(" ", "_")}"
-                            validationError = null
-                        },
-                        galleryButtonTag = "upload_self_photo_button",
-                        presetButtonTag = "preset_self_photo_button"
+                        galleryButtonTag = "upload_self_photo_button"
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -981,7 +976,7 @@ fun CompleteProfileFormScreen(
 
                     PhotoUploadCard(
                         title = if (ktpPhotoUri.isNotBlank()) "Foto KTP Terlampir" else "Belum Ada Foto KTP",
-                        subtitle = "Unggah foto KTP asli yang jelas untuk verifikasi Admin Sekolah",
+                        subtitle = "Unggah foto KTP asli yang jelas dari Galeri untuk verifikasi Admin Sekolah",
                         photoUri = ktpPhotoUri,
                         isKtpCard = true,
                         onPickFromGallery = {
@@ -989,12 +984,7 @@ fun CompleteProfileFormScreen(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        onUsePresetSample = {
-                            ktpPhotoUri = "preset://ktp_nik_3578${(100000..999999).random()}"
-                            validationError = null
-                        },
-                        galleryButtonTag = "upload_ktp_photo_button",
-                        presetButtonTag = "preset_ktp_photo_button"
+                        galleryButtonTag = "upload_ktp_photo_button"
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1574,9 +1564,7 @@ private fun PhotoUploadCard(
     photoUri: String,
     isKtpCard: Boolean,
     onPickFromGallery: () -> Unit,
-    onUsePresetSample: () -> Unit,
-    galleryButtonTag: String,
-    presetButtonTag: String
+    galleryButtonTag: String
 ) {
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -1629,57 +1617,29 @@ private fun PhotoUploadCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Button(
+                onClick = onPickFromGallery,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EspressoBrown,
+                    contentColor = SoftGoldHighlight
+                ),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(vertical = 11.dp, horizontal = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(galleryButtonTag)
             ) {
-                Button(
-                    onClick = onPickFromGallery,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EspressoBrown,
-                        contentColor = SoftGoldHighlight
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(vertical = 10.dp, horizontal = 10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(galleryButtonTag)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AddAPhoto,
-                        contentDescription = null,
-                        tint = MetallicGold,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isKtpCard) "Pilih Foto KTP" else "Pilih Foto Diri",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onUsePresetSample,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, AntiqueGold),
-                    contentPadding = PaddingValues(vertical = 10.dp, horizontal = 10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(presetButtonTag)
-                ) {
-                    Icon(
-                        imageVector = if (isKtpCard) Icons.Default.CreditCard else Icons.Default.AccountBox,
-                        contentDescription = null,
-                        tint = EspressoBrown,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isKtpCard) "Gunakan KTP Simulasi" else "Gunakan Foto Simulasi",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = EspressoBrown
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.AddAPhoto,
+                    contentDescription = null,
+                    tint = MetallicGold,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isKtpCard) "Pilih Foto KTP dari Galeri" else "Pilih Foto Diri dari Galeri",
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
     }

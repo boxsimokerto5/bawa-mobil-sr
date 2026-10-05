@@ -104,20 +104,20 @@ fun LoginScreen(
     // 0 = Pengguna & Pemantau Mobil, 1 = Keamanan (Security), 2 = Admin Sekolah
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    var userName by remember { mutableStateOf(defaultUserName) }
     var userDivision by remember { mutableStateOf(defaultUserDivision) }
     var registeredEmail by remember(prefilledEmail) {
-        mutableStateOf(prefilledEmail.ifBlank { "ustadz.fauzi@sekolahsr.sch.id" })
+        mutableStateOf(prefilledEmail)
     }
-    var registeredPassword by remember { mutableStateOf("Password123") }
-    var showQuickDemoProfile by remember { mutableStateOf(false) }
+    var registeredPassword by remember { mutableStateOf("") }
     var showFirebaseEmailPanel by remember { mutableStateOf(false) }
     var driverEmail by remember { mutableStateOf("") }
     var driverPassword by remember { mutableStateOf("") }
-    var securityOfficer by remember { mutableStateOf(defaultSecurityOfficer) }
-    var securityGateCode by remember { mutableStateOf("SR-POS-01") }
-    var adminUsername by remember { mutableStateOf("eccko1101") }
-    var adminPassword by remember { mutableStateOf("Woyowoyo12@") }
+    var securityEmail by remember(prefilledEmail) {
+        mutableStateOf(prefilledEmail)
+    }
+    var securityPassword by remember { mutableStateOf("") }
+    var adminUsername by remember { mutableStateOf("") }
+    var adminPassword by remember { mutableStateOf("") }
 
     val scrollState = rememberScrollState()
 
@@ -452,165 +452,6 @@ fun LoginScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Quick Preset Accounts for Testing Role-Play Stages
-                        Text(
-                            text = "CONTOH AKUN TERDAFTAR (KLIK UNTUK UJI ROLE-PLAY):",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EspressoBrown,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            PresetProfileChip(
-                                label = "Fauzi (Menunggu Admin)",
-                                isSelected = registeredEmail.contains("fauzi"),
-                                onClick = {
-                                    registeredEmail = "ustadz.fauzi@sekolahsr.sch.id"
-                                    registeredPassword = "Password123"
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                            PresetProfileChip(
-                                label = "Andi (Guru Aktif)",
-                                isSelected = registeredEmail.contains("andi.guru"),
-                                onClick = {
-                                    registeredEmail = "andi.guru@sekolahsr.sch.id"
-                                    registeredPassword = "Password123"
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Surface(
-                            onClick = { showQuickDemoProfile = !showQuickDemoProfile },
-                            shape = RoundedCornerShape(10.dp),
-                            color = VintageParchmentSurface,
-                            border = BorderStroke(1.dp, VintageWarmBorder),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = if (showQuickDemoProfile) {
-                                    "Sembunyikan Login Cepat Nama Langsung"
-                                } else {
-                                    "Atau Masuk Cepat Tanpa Password (Mode Langsung)"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = EspressoBrown,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp)
-                            )
-                        }
-
-                        if (showQuickDemoProfile) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                PresetProfileChip(
-                                    label = "Andi (Guru)",
-                                    isSelected = userName.contains("Andi"),
-                                    onClick = {
-                                        userName = "Bapak Andi Pratama"
-                                        userDivision = "Guru"
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                PresetProfileChip(
-                                    label = "Budi (Waliasuh)",
-                                    isSelected = userName.contains("Budi"),
-                                    onClick = {
-                                        userName = "Mas Budi Santoso"
-                                        userDivision = "Waliasuh"
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                PresetProfileChip(
-                                    label = "Siti (TU Tendik)",
-                                    isSelected = userName.contains("Siti"),
-                                    onClick = {
-                                        userName = "Ibu Siti Rahma"
-                                        userDivision = "TU Tendik"
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            OutlinedTextField(
-                                value = userName,
-                                onValueChange = { userName = it },
-                                label = { Text("Nama Lengkap Pengguna / Pemantau") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = "Nama",
-                                        tint = EspressoBrown
-                                    )
-                                },
-                                singleLine = true,
-                                colors = vintageTextFieldColors(),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("login_user_name_input")
-                            )
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            OutlinedTextField(
-                                value = userDivision,
-                                onValueChange = { userDivision = it },
-                                label = { Text("Tugas / Bagian Keperluan") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Badge,
-                                        contentDescription = "Tugas",
-                                        tint = EspressoBrown
-                                    )
-                                },
-                                singleLine = true,
-                                colors = vintageTextFieldColors(),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("login_user_division_input")
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Button(
-                                onClick = { onLoginAsUserMonitor(userName, userDivision) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = RichLeatherBrown,
-                                    contentColor = SoftGoldHighlight
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                                contentPadding = PaddingValues(vertical = 12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("login_user_submit_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DirectionsCar,
-                                    contentDescription = null,
-                                    tint = MetallicGold
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Masuk Cepat sebagai Pengguna & Pemantau",
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                            }
-                        }
-
                         Spacer(modifier = Modifier.height(16.dp))
 
                         VintageOrnamentalDivider(label = "ATAU AKSES AMAN PENGEMUDI")
@@ -798,7 +639,7 @@ fun LoginScreen(
                             }
                         }
                     } else if (selectedTab == 1) {
-                        // Login Keamanan (Security)
+                        // Login Keamanan (Security) Menggunakan Akun Terdaftar
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Shield,
@@ -816,88 +657,75 @@ fun LoginScreen(
 
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Halaman khusus petugas keamanan untuk menyetujui atau menolak rencana bawa mobil serta memantau lokasi unit.",
+                            text = "Masuk menggunakan akun personel Keamanan yang telah didaftarkan & disetujui Admin Sekolah untuk memverifikasi izin keluar-masuk armada.",
                             style = MaterialTheme.typography.bodySmall,
                             color = SoftMochaText
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        Text(
-                            text = "PILIH PETUGAS PIKET POS:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EspressoBrown,
-                            fontWeight = FontWeight.Bold
+                        OutlinedTextField(
+                            value = securityEmail,
+                            onValueChange = { securityEmail = it },
+                            label = { Text("Email Akun Petugas Keamanan") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Email,
+                                    contentDescription = "Email Petugas Keamanan",
+                                    tint = EspressoBrown
+                                )
+                            },
+                            singleLine = true,
+                            colors = vintageTextFieldColors(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_security_email_input")
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            PresetProfileChip(
-                                label = "Komandan Suryo",
-                                isSelected = securityOfficer.contains("Suryo"),
-                                onClick = {
-                                    securityOfficer = "Komandan Pos Suryo"
-                                    securityGateCode = "SR-POS-01"
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                            PresetProfileChip(
-                                label = "Petugas Danang",
-                                isSelected = securityOfficer.contains("Danang"),
-                                onClick = {
-                                    securityOfficer = "Petugas Keamanan Danang"
-                                    securityGateCode = "SR-GERBANG-UTAMA"
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = securityPassword,
+                            onValueChange = { securityPassword = it },
+                            label = { Text("Kata Sandi Akun Keamanan") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Kata Sandi Keamanan",
+                                    tint = EspressoBrown
+                                )
+                            },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
+                            colors = vintageTextFieldColors(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_security_password_input")
+                        )
+
+                        if (!authStatusMessage.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = SoftGoldHighlight.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, AntiqueGold),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = authStatusMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = DeepInkBrown,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        OutlinedTextField(
-                            value = securityOfficer,
-                            onValueChange = { securityOfficer = it },
-                            label = { Text("Nama Petugas Keamanan Piket") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Shield,
-                                    contentDescription = "Nama Petugas",
-                                    tint = EspressoBrown
-                                )
-                            },
-                            singleLine = true,
-                            colors = vintageTextFieldColors(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("login_security_officer_input")
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        OutlinedTextField(
-                            value = securityGateCode,
-                            onValueChange = { securityGateCode = it },
-                            label = { Text("Kode Pos / Regu Jaga") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Key,
-                                    contentDescription = "Kode Pos",
-                                    tint = EspressoBrown
-                                )
-                            },
-                            singleLine = true,
-                            colors = vintageTextFieldColors(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("login_security_code_input")
-                        )
-
-                        Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         Button(
-                            onClick = { onLoginAsSecurity(securityOfficer) },
+                            onClick = {
+                                onLoginWithRegisteredEmail(securityEmail, securityPassword)
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = RichLeatherBrown,
                                 contentColor = SoftGoldHighlight
@@ -909,18 +737,18 @@ fun LoginScreen(
                                 .testTag("login_security_submit_button")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Lock,
+                                imageVector = Icons.Default.Shield,
                                 contentDescription = null,
                                 tint = MetallicGold
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Masuk ke Halaman Keamanan",
+                                text = "Masuk sebagai Petugas Keamanan",
                                 style = MaterialTheme.typography.labelLarge
                             )
                         }
                     } else {
-                        // Login Admin Sekolah (eccko1101 / Woyowoyo12@)
+                        // Login Admin Sekolah
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.AdminPanelSettings,
@@ -942,46 +770,6 @@ fun LoginScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = SoftMochaText
                         )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Surface(
-                            onClick = {
-                                adminUsername = "eccko1101"
-                                adminPassword = "Woyowoyo12@"
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            color = SoftGoldHighlight,
-                            border = BorderStroke(1.dp, AntiqueGold),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "KREDENSIAL RESMI ADMIN SEKOLAH",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = EspressoBrown,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "User: eccko1101 • Pass: Woyowoyo12@",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = DeepInkBrown,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                                Text(
-                                    text = "Isi Otomatis",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = EspressoBrown,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
 
                         Spacer(modifier = Modifier.height(12.dp))
 

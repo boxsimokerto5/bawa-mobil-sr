@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
@@ -40,6 +41,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,6 +90,16 @@ fun VintageTopBar(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showAboutPrivacyDialog by rememberSaveable { mutableStateOf(false) }
+    var initialDialogTab by rememberSaveable { mutableIntStateOf(0) }
+
+    if (showAboutPrivacyDialog) {
+        VintageAboutAndPrivacyDialog(
+            initialTab = initialDialogTab,
+            onDismiss = { showAboutPrivacyDialog = false }
+        )
+    }
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = EspressoBrown,
@@ -208,6 +224,29 @@ fun VintageTopBar(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    // Compact Info & Privacy Policy Circle Button (Accessible on User, Security & Admin pages)
+                    Surface(
+                        onClick = {
+                            initialDialogTab = 0
+                            showAboutPrivacyDialog = true
+                        },
+                        shape = CircleShape,
+                        color = SoftGoldHighlight.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, MetallicGold),
+                        modifier = Modifier
+                            .size(30.dp)
+                            .testTag("topbar_about_privacy_button")
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Tentang Kami & Privacy Policy",
+                                tint = SoftGoldHighlight,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
 
