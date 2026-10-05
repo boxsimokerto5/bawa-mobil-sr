@@ -136,7 +136,8 @@ fun SchoolAdminDashboardScreen(
             },
             onAdvanceManualStep = onAdvanceManualStep,
             onLocationPermissionResult = onLocationPermissionResult,
-            onDismiss = onCloseMapPopup
+            onDismiss = onCloseMapPopup,
+            allTrips = uiState.allTrips
         )
     }
 
@@ -498,7 +499,8 @@ fun SchoolAdminDashboardScreen(
                                 isInsidePopup = false,
                                 onOpenFullPopup = {
                                     onOpenMapPopup(uiState.session.focusedMapTripId)
-                                }
+                                },
+                                allTrips = uiState.allTrips
                             )
                         }
                     }

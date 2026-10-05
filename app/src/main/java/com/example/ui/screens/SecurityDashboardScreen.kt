@@ -121,7 +121,8 @@ fun SecurityDashboardScreen(
             },
             onAdvanceManualStep = onAdvanceManualStep,
             onLocationPermissionResult = onLocationPermissionResult,
-            onDismiss = onCloseMapPopup
+            onDismiss = onCloseMapPopup,
+            allTrips = uiState.allTrips
         )
     }
 
@@ -250,7 +251,8 @@ fun SecurityDashboardScreen(
                     onAdvanceManualStep = onAdvanceManualStep,
                     onLocationPermissionResult = onLocationPermissionResult,
                     isInsidePopup = false,
-                    onOpenFullPopup = { onOpenMapPopup(uiState.session.focusedMapTripId) }
+                    onOpenFullPopup = { onOpenMapPopup(uiState.session.focusedMapTripId) },
+                    allTrips = uiState.allTrips
                 )
 
                 2 -> TripHistoryListTab(
@@ -450,23 +452,54 @@ private fun SecurityApprovalQueueTab(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Rute Tujuan: ${trip.parsedDestinations.joinToString(" → ")}",
+                            text = "Rute PP: ${trip.fullRouteSummaryText}",
                             style = MaterialTheme.typography.bodySmall,
                             color = SoftMochaText
                         )
-                        Text(
-                            text = String.format(
-                                java.util.Locale.US,
-                                "Posisi Live: %.4f, %.4f • Kecepatan: %d km/jam",
-                                trip.currentLat,
-                                trip.currentLng,
-                                trip.currentSpeedKmh
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (trip.isArrivedBackAtSrGate) VintageGreenBg else VintageParchmentSurface,
+                            border = BorderStroke(
+                                1.dp,
+                                if (trip.isArrivedBackAtSrGate) VintageGreenSuccess else VintageWarmBorder
                             ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = VintageGreenSuccess,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = if (trip.isArrivedBackAtSrGate) {
+                                        "STATUS GERBANG: Mobil telah kembali di Pos Utama SR • Siap diakhiri Keamanan"
+                                    } else {
+                                        String.format(
+                                            java.util.Locale.US,
+                                            "Posisi Live: %.4f, %.4f • Kecepatan: %d km/jam",
+                                            trip.currentLat,
+                                            trip.currentLng,
+                                            trip.currentSpeedKmh
+                                        )
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = VintageGreenSuccess,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = String.format(
+                                        java.util.Locale.US,
+                                        "Jarak Tempuh Tercatat: %.2f km • Odometer: %d ➔ %d km (%d titik garis rute)",
+                                        trip.totalDistanceTraveledKm,
+                                        trip.startOdometerKm,
+                                        trip.computedEndOdometerKm,
+                                        trip.parsedTrailCoordinates.size
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DeepInkBrown,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -474,12 +507,9 @@ private fun SecurityApprovalQueueTab(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Button(
+                            OutlinedButton(
                                 onClick = { onViewTripOnMap(trip.id) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = EspressoBrown,
-                                    contentColor = SoftGoldHighlight
-                                ),
+                                border = BorderStroke(1.2.dp, EspressoBrown),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .weight(1f)
@@ -488,19 +518,36 @@ private fun SecurityApprovalQueueTab(
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
                                     contentDescription = null,
+                                    tint = EspressoBrown,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Garis Rute Peta", color = EspressoBrown, style = MaterialTheme.typography.labelMedium)
+                            }
+
+                            Button(
+                                onClick = { onCompleteTrip(trip) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (trip.isArrivedBackAtSrGate) VintageGreenSuccess else EspressoBrown,
+                                    contentColor = SoftGoldHighlight
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1.25f)
+                                    .testTag("sec_complete_trip_btn_${trip.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
                                     tint = MetallicGold,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Lacak di Peta Real-Time", style = MaterialTheme.typography.labelMedium)
-                            }
-
-                            OutlinedButton(
-                                onClick = { onCompleteTrip(trip) },
-                                border = BorderStroke(1.2.dp, EspressoBrown),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("Catat Kembali", color = EspressoBrown, style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    text = "Akhiri Kembali di SR",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }

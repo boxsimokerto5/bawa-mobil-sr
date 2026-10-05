@@ -118,12 +118,20 @@ data class TripRequestEntity(
     val status: String, // TripStatus.name
     val securityNotes: String = "",
     val approvedByOfficer: String = "",
+    val completedByOfficer: String = "",
     val currentLat: Double = -7.2575,
     val currentLng: Double = 112.7521,
     val currentSpeedKmh: Int = 0,
     val progressPercent: Float = 0f,
     val currentTargetIndex: Int = 0,
     val isGpsRealDevice: Boolean = false,
+    // Semicolon-separated recorded trail points from SR departure -> destinations -> back to SR
+    val routeTrailCoordsText: String = "-7.2575,112.7521",
+    val totalDistanceTraveledKm: Double = 0.0,
+    val endOdometerKm: Int = 0,
+    val isArrivedBackAtSrGate: Boolean = false,
+    val approvedAt: Long = 0L,
+    val completedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
@@ -138,6 +146,33 @@ data class TripRequestEntity(
                 val lng = parts[1].toDoubleOrNull()
                 if (lat != null && lng != null) Pair(lat, lng) else null
             } else null
+        }
+
+    val parsedTrailCoordinates: List<Pair<Double, Double>>
+        get() = routeTrailCoordsText.split(";").mapNotNull { token ->
+            val parts = token.split(",")
+            if (parts.size == 2) {
+                val lat = parts[0].toDoubleOrNull()
+                val lng = parts[1].toDoubleOrNull()
+                if (lat != null && lng != null) Pair(lat, lng) else null
+            } else null
+        }
+
+    val computedEndOdometerKm: Int
+        get() = if (endOdometerKm > 0) {
+            endOdometerKm
+        } else {
+            startOdometerKm + kotlin.math.ceil(totalDistanceTraveledKm).toInt()
+        }
+
+    val fullRouteSummaryText: String
+        get() {
+            val stops = parsedDestinations
+            return if (stops.isEmpty()) {
+                "Pos Utama SR ➔ Pos Utama SR"
+            } else {
+                "Pos Utama SR ➔ ${stops.joinToString(" ➔ ")} ➔ Kembali ke Pos Utama SR"
+            }
         }
 
     val tripStatusEnum: TripStatus

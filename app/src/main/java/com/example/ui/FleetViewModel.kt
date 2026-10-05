@@ -798,15 +798,18 @@ class FleetViewModel(
     }
 
     fun completeActiveTrip(tripId: Int, vehicleName: String) {
+        val officer = _session.value.loggedInSecurityOfficer.ifBlank { "Komandan Pos Suryo" }
         viewModelScope.launch(Dispatchers.IO) {
             repository.completeTrip(
                 tripId = tripId,
-                completionNote = "Kendaraan telah kembali ke Pos Utama SR."
+                officerName = officer,
+                completionNote = "Kendaraan telah kembali ke Pos Utama SR & diverifikasi oleh Keamanan ($officer)."
             )
             launch(Dispatchers.Main) {
                 _session.update {
                     it.copy(
-                        bannerMessage = "Perjalanan $vehicleName selesai. Unit kini kembali Tersedia di Garasi."
+                        focusedMapTripId = tripId,
+                        bannerMessage = "Perjalanan $vehicleName telah diakhiri oleh Keamanan ($officer) di Pos Utama SR. Rekap rute & jarak tempuh tersimpan."
                     )
                 }
             }

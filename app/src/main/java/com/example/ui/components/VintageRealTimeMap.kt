@@ -53,7 +53,10 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -83,8 +86,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -103,6 +108,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.DestinationEntity
 import com.example.data.FleetRepository
 import com.example.data.TripRequestEntity
+import com.example.data.TripStatus
 import com.example.ui.theme.AntiqueGold
 import com.example.ui.theme.DeepInkBrown
 import com.example.ui.theme.EspressoBrown
@@ -110,16 +116,21 @@ import com.example.ui.theme.MetallicGold
 import com.example.ui.theme.RichLeatherBrown
 import com.example.ui.theme.SoftGoldHighlight
 import com.example.ui.theme.SoftMochaText
+import com.example.ui.theme.VintageAmberBg
+import com.example.ui.theme.VintageAmberPending
 import com.example.ui.theme.VintageCardCream
 import com.example.ui.theme.VintageCreamBg
 import com.example.ui.theme.VintageGreenBg
 import com.example.ui.theme.VintageGreenSuccess
 import com.example.ui.theme.VintageParchmentSurface
 import com.example.ui.theme.VintageWarmBorder
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * Almost Full-Screen Popup Modal Dialog (96% width x 94% height) for live OpenStreetMap monitoring.
@@ -135,7 +146,8 @@ fun VintageNearFullScreenMapPopup(
     onCompleteTrip: (TripRequestEntity) -> Unit,
     onAdvanceManualStep: () -> Unit,
     onLocationPermissionResult: (android.content.Context, Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    allTrips: List<TripRequestEntity> = activeTrips
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -243,6 +255,7 @@ fun VintageNearFullScreenMapPopup(
                         onLocationPermissionResult = onLocationPermissionResult,
                         isInsidePopup = true,
                         onOpenFullPopup = onDismiss,
+                        allTrips = allTrips,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -263,6 +276,7 @@ fun VintageRealTimeMapPanel(
     onLocationPermissionResult: (android.content.Context, Boolean) -> Unit,
     isInsidePopup: Boolean = false,
     onOpenFullPopup: (() -> Unit)? = null,
+    allTrips: List<TripRequestEntity> = activeTrips,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -274,15 +288,27 @@ fun VintageRealTimeMapPanel(
         onLocationPermissionResult(context, granted)
     }
 
-    val selectedTrip = remember(activeTrips, focusedTripId) {
-        activeTrips.firstOrNull { it.id == focusedTripId } ?: activeTrips.firstOrNull()
+    // Include completed trips with route trails if focused from Rekap Perjalanan
+    val displayTrips = remember(activeTrips, allTrips, focusedTripId) {
+        val focusedFromAll = allTrips.firstOrNull { it.id == focusedTripId }
+        if (focusedFromAll != null && activeTrips.none { it.id == focusedFromAll.id }) {
+            activeTrips + focusedFromAll
+        } else if (activeTrips.isEmpty() && allTrips.isNotEmpty()) {
+            allTrips.filter { it.tripStatusEnum == TripStatus.COMPLETED }.take(2)
+        } else {
+            activeTrips
+        }
+    }
+
+    val selectedTrip = remember(displayTrips, focusedTripId) {
+        displayTrips.firstOrNull { it.id == focusedTripId } ?: displayTrips.firstOrNull()
     }
 
     // Continuous floating-point zoom (10.5f .. 17.5f) for butter-smooth pinch & button zoom
     var targetZoom by remember { mutableFloatStateOf(if (isInsidePopup) 14.0f else 13.5f) }
     val smoothZoom by animateFloatAsState(
         targetValue = targetZoom,
-        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
         label = "smooth_osm_zoom"
     )
 
@@ -301,7 +327,7 @@ fun VintageRealTimeMapPanel(
     val animatedCenterLat by animateFloatAsState(
         targetValue = centerLat.toFloat(),
         animationSpec = tween(
-            durationMillis = if (followSelectedVehicle) 1800 else 60,
+            durationMillis = if (followSelectedVehicle) 1800 else 45,
             easing = LinearEasing
         ),
         label = "camera_lat"
@@ -309,7 +335,7 @@ fun VintageRealTimeMapPanel(
     val animatedCenterLng by animateFloatAsState(
         targetValue = centerLng.toFloat(),
         animationSpec = tween(
-            durationMillis = if (followSelectedVehicle) 1800 else 60,
+            durationMillis = if (followSelectedVehicle) 1800 else 45,
             easing = LinearEasing
         ),
         label = "camera_lng"
@@ -349,7 +375,7 @@ fun VintageRealTimeMapPanel(
         label = "pulse_alpha"
     )
 
-    val animatedVehiclePositions = activeTrips.associate { trip ->
+    val animatedVehiclePositions = displayTrips.associate { trip ->
         val animLat by animateFloatAsState(
             targetValue = trip.currentLat.toFloat(),
             animationSpec = tween(durationMillis = 2200, easing = LinearEasing),
@@ -390,26 +416,58 @@ fun VintageRealTimeMapPanel(
                         .fillMaxSize()
                         .background(Color(0xFFF2E9D8))
                         .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoomChange, _ ->
-                                if (pan != Offset.Zero) {
+                            // Focal-point (centroid) 2-finger pinch-to-zoom & smooth panning like Google Maps
+                            detectTransformGestures(panZoomLock = false) { centroid, pan, zoomChange, _ ->
+                                val w = size.width.toFloat()
+                                val h = size.height.toFloat()
+                                val oldZoom = targetZoom
+                                val oldZInt = oldZoom.toInt().coerceIn(10, 17)
+                                val oldScale = 2.0.pow((oldZoom - oldZInt).toDouble())
+                                val oldEffectiveTileSize = WebMercator.TILE_SIZE * oldScale
+
+                                val cTileX = WebMercator.lonToTileX(centerLng, oldZInt)
+                                val cTileY = WebMercator.latToTileY(centerLat, oldZInt)
+
+                                if (zoomChange != 1f || pan != Offset.Zero) {
                                     followSelectedVehicle = false
-                                    val zInt = targetZoom.toInt().coerceIn(10, 17)
-                                    val scaleFactor = 2.0.pow((targetZoom - zInt).toDouble())
-                                    val effectiveTileSize = WebMercator.TILE_SIZE * scaleFactor
-                                    val cTileX = WebMercator.lonToTileX(centerLng, zInt)
-                                    val cTileY = WebMercator.latToTileY(centerLat, zInt)
-                                    val newTileX = cTileX - (pan.x / effectiveTileSize)
-                                    val newTileY = cTileY - (pan.y / effectiveTileSize)
-                                    centerLng = WebMercator.tileXToLon(newTileX, zInt).coerceIn(-179.9, 179.9)
-                                    centerLat = WebMercator.tileYToLat(newTileY, zInt).coerceIn(-80.0, 80.0)
                                 }
-                                if (zoomChange != 1f) {
+
+                                // 1. Apply pan first in current tile space
+                                val pannedCenterTileX = cTileX - (pan.x / oldEffectiveTileSize)
+                                val pannedCenterTileY = cTileY - (pan.y / oldEffectiveTileSize)
+
+                                if (zoomChange != 1f && w > 0f && h > 0f) {
+                                    // 2. Keep the geographic coordinate under the 2-finger centroid anchored while zooming
+                                    val dxPx = (centroid.x - w / 2f).toDouble()
+                                    val dyPx = (centroid.y - h / 2f).toDouble()
+                                    val focalTileX = pannedCenterTileX + dxPx / oldEffectiveTileSize
+                                    val focalTileY = pannedCenterTileY + dyPx / oldEffectiveTileSize
+                                    val focalLon = WebMercator.tileXToLon(focalTileX, oldZInt)
+                                    val focalLat = WebMercator.tileYToLat(focalTileY, oldZInt)
+
                                     val zoomDelta = (ln(zoomChange.toDouble()) / ln(2.0)).toFloat()
-                                    targetZoom = (targetZoom + zoomDelta).coerceIn(10.5f, 17.5f)
+                                    val newZoom = (oldZoom + zoomDelta).coerceIn(10.5f, 17.5f)
+                                    targetZoom = newZoom
+
+                                    val newZInt = newZoom.toInt().coerceIn(10, 17)
+                                    val newScale = 2.0.pow((newZoom - newZInt).toDouble())
+                                    val newEffectiveTileSize = WebMercator.TILE_SIZE * newScale
+
+                                    val focalNewTileX = WebMercator.lonToTileX(focalLon, newZInt)
+                                    val focalNewTileY = WebMercator.latToTileY(focalLat, newZInt)
+
+                                    val anchoredCenterTileX = focalNewTileX - dxPx / newEffectiveTileSize
+                                    val anchoredCenterTileY = focalNewTileY - dyPx / newEffectiveTileSize
+
+                                    centerLng = WebMercator.tileXToLon(anchoredCenterTileX, newZInt).coerceIn(-179.9, 179.9)
+                                    centerLat = WebMercator.tileYToLat(anchoredCenterTileY, newZInt).coerceIn(-80.0, 80.0)
+                                } else if (pan != Offset.Zero) {
+                                    centerLng = WebMercator.tileXToLon(pannedCenterTileX, oldZInt).coerceIn(-179.9, 179.9)
+                                    centerLat = WebMercator.tileYToLat(pannedCenterTileY, oldZInt).coerceIn(-80.0, 80.0)
                                 }
                             }
                         }
-                        .pointerInput(activeTrips, smoothZoom, centerLat, centerLng) {
+                        .pointerInput(displayTrips, smoothZoom, centerLat, centerLng) {
                             detectTapGestures(
                                 onDoubleTap = { tapOffset ->
                                     followSelectedVehicle = false
@@ -420,8 +478,8 @@ fun VintageRealTimeMapPanel(
                                     val effectiveTileSize = WebMercator.TILE_SIZE * scaleFactor
                                     val cTileX = WebMercator.lonToTileX(centerLng, zInt)
                                     val cTileY = WebMercator.latToTileY(centerLat, zInt)
-                                    val tappedTileX = cTileX + (tapOffset.x - w / 2f) / effectiveTileSize * 0.45
-                                    val tappedTileY = cTileY + (tapOffset.y - h / 2f) / effectiveTileSize * 0.45
+                                    val tappedTileX = cTileX + (tapOffset.x - w / 2f) / effectiveTileSize * 0.5
+                                    val tappedTileY = cTileY + (tapOffset.y - h / 2f) / effectiveTileSize * 0.5
                                     centerLng = WebMercator.tileXToLon(tappedTileX, zInt).coerceIn(-179.9, 179.9)
                                     centerLat = WebMercator.tileYToLat(tappedTileY, zInt).coerceIn(-80.0, 80.0)
                                     targetZoom = (targetZoom + 1.0f).coerceAtMost(17.5f)
@@ -444,7 +502,7 @@ fun VintageRealTimeMapPanel(
                                         )
                                     }
 
-                                    val hitTrip = activeTrips.minByOrNull { trip ->
+                                    val hitTrip = displayTrips.minByOrNull { trip ->
                                         val pt = project(trip.currentLat, trip.currentLng)
                                         (pt - tapOffset).getDistance()
                                     }
@@ -553,48 +611,148 @@ fun VintageRealTimeMapPanel(
                         }
                     }
 
-                    // 3. Active Trip Route Polylines & Numbered Stops
-                    activeTrips.forEach { trip ->
+                    // 3. Planned Round-Trip Route (Dashed Line: Pos SR -> Destinations -> Back to Pos SR)
+                    //    + Solid Recorded Journey Trail (Garis Perjalanan Nyata dari Keberangkatan sampai Kembali ke SR)
+                    displayTrips.forEach { trip ->
                         val isFocused = selectedTrip?.id == trip.id
                         val coords = trip.parsedCoordinates
                         val names = trip.parsedDestinations
-                        val waypoints = buildList {
+
+                        // 3A. Planned Round-Trip Loop (Pos Utama SR -> Tujuan 1..N -> Kembali ke Pos Utama SR)
+                        val plannedWaypoints = buildList {
                             add(Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG))
                             addAll(coords)
+                            add(Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG))
                         }
 
-                        for (i in 0 until waypoints.size - 1) {
-                            val pStart = project(waypoints[i].first, waypoints[i].second)
-                            val pEnd = project(waypoints[i + 1].first, waypoints[i + 1].second)
+                        for (i in 0 until plannedWaypoints.size - 1) {
+                            val pStart = project(plannedWaypoints[i].first, plannedWaypoints[i].second)
+                            val pEnd = project(plannedWaypoints[i + 1].first, plannedWaypoints[i + 1].second)
 
                             drawLine(
-                                color = if (isFocused) MetallicGold.copy(alpha = 0.78f) else VintageCardCream.copy(alpha = 0.7f),
+                                color = if (isFocused) VintageCardCream.copy(alpha = 0.72f) else VintageCardCream.copy(alpha = 0.45f),
                                 start = pStart,
                                 end = pEnd,
-                                strokeWidth = if (isFocused) 13f else 8f,
+                                strokeWidth = if (isFocused) 10f else 6f,
                                 cap = StrokeCap.Round
                             )
 
                             drawLine(
-                                color = if (isFocused) EspressoBrown else RichLeatherBrown.copy(alpha = 0.75f),
+                                color = if (isFocused) RichLeatherBrown.copy(alpha = 0.65f) else RichLeatherBrown.copy(alpha = 0.40f),
                                 start = pStart,
                                 end = pEnd,
-                                strokeWidth = if (isFocused) 6.5f else 4f,
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 10f), 0f),
+                                strokeWidth = if (isFocused) 4.5f else 3f,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f),
                                 cap = StrokeCap.Round
                             )
                         }
 
+                        // 3B. SOLID RECORDED JOURNEY TRAIL (Garis Jejak Perjalanan yang Sudah Ditempuh Mobil)
+                        val smoothVehPos = animatedVehiclePositions[trip.id]
+                        val recordedTrail = buildList {
+                            val rawTrail = trip.parsedTrailCoordinates
+                            if (rawTrail.isEmpty()) {
+                                add(Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG))
+                            } else {
+                                addAll(rawTrail)
+                            }
+                            if (smoothVehPos != null && trip.tripStatusEnum == TripStatus.IN_TRANSIT) {
+                                add(smoothVehPos)
+                            }
+                        }
+
+                        if (recordedTrail.size >= 2) {
+                            val trailPath = Path()
+                            val projectedTrail = recordedTrail.map { project(it.first, it.second) }
+                            projectedTrail.forEachIndexed { index, pt ->
+                                if (index == 0) {
+                                    trailPath.moveTo(pt.x, pt.y)
+                                } else {
+                                    trailPath.lineTo(pt.x, pt.y)
+                                }
+                            }
+
+                            // Outer Vintage Gold Halo for the traveled trail
+                            drawPath(
+                                path = trailPath,
+                                color = if (isFocused) MetallicGold.copy(alpha = 0.92f) else AntiqueGold.copy(alpha = 0.65f),
+                                style = Stroke(
+                                    width = if (isFocused) 15f else 10f,
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round
+                                )
+                            )
+
+                            // Inner Emerald/Espresso Traveled Line
+                            drawPath(
+                                path = trailPath,
+                                color = if (trip.isArrivedBackAtSrGate || trip.tripStatusEnum == TripStatus.COMPLETED) {
+                                    VintageGreenSuccess
+                                } else if (isFocused) {
+                                    EspressoBrown
+                                } else {
+                                    RichLeatherBrown
+                                },
+                                style = Stroke(
+                                    width = if (isFocused) 8.5f else 5.5f,
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round
+                                )
+                            )
+
+                            // Breadcrumb Dots & Directional Chevrons along the recorded trail
+                            for (i in 0 until projectedTrail.size - 1) {
+                                val p1 = projectedTrail[i]
+                                val p2 = projectedTrail[i + 1]
+                                drawCircle(
+                                    color = SoftGoldHighlight,
+                                    radius = if (isFocused) 3.2f else 2.2f,
+                                    center = p1
+                                )
+                                val segLen = (p2 - p1).getDistance()
+                                if (isFocused && segLen > 28f) {
+                                    val mid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
+                                    val angle = atan2(p2.y - p1.y, p2.x - p1.x)
+                                    val arrowLen = 7.5f
+                                    val wing1 = Offset(
+                                        x = mid.x - arrowLen * cos(angle - 0.55f),
+                                        y = mid.y - arrowLen * sin(angle - 0.55f)
+                                    )
+                                    val wing2 = Offset(
+                                        x = mid.x - arrowLen * cos(angle + 0.55f),
+                                        y = mid.y - arrowLen * sin(angle + 0.55f)
+                                    )
+                                    drawLine(
+                                        color = SoftGoldHighlight,
+                                        start = wing1,
+                                        end = mid,
+                                        strokeWidth = 2.4f,
+                                        cap = StrokeCap.Round
+                                    )
+                                    drawLine(
+                                        color = SoftGoldHighlight,
+                                        start = wing2,
+                                        end = mid,
+                                        strokeWidth = 2.4f,
+                                        cap = StrokeCap.Round
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3C. Numbered Destination Pins
                         coords.forEachIndexed { idx, pair ->
                             val destPt = project(pair.first, pair.second)
                             if (destPt.x in -120f..(w + 120f) && destPt.y in -120f..(h + 120f)) {
+                                val isVisited = trip.progressPercent >= ((idx + 1).toFloat() / (coords.size + 1).toFloat()) ||
+                                    trip.tripStatusEnum == TripStatus.COMPLETED
                                 drawCircle(
-                                    color = EspressoBrown,
+                                    color = if (isVisited) VintageGreenSuccess else EspressoBrown,
                                     radius = if (isFocused) 16f else 12f,
                                     center = destPt
                                 )
                                 drawCircle(
-                                    color = MetallicGold,
+                                    color = if (isVisited) SoftGoldHighlight else MetallicGold,
                                     radius = if (isFocused) 13f else 9f,
                                     center = destPt
                                 )
@@ -636,7 +794,7 @@ fun VintageRealTimeMapPanel(
                                         cornerRadius = CornerRadius(6f, 6f)
                                     )
                                     drawRoundRect(
-                                        color = EspressoBrown,
+                                        color = if (isVisited) VintageGreenSuccess else EspressoBrown,
                                         topLeft = boxTopLeft,
                                         size = Size(boxW, boxH),
                                         cornerRadius = CornerRadius(6f, 6f),
@@ -655,21 +813,21 @@ fun VintageRealTimeMapPanel(
                     if (basePos.x in -120f..(w + 120f) && basePos.y in -120f..(h + 120f)) {
                         drawCircle(
                             color = EspressoBrown,
-                            radius = 17f,
+                            radius = 18f,
                             center = basePos
                         )
                         drawCircle(
                             color = MetallicGold,
-                            radius = 12f,
+                            radius = 13f,
                             center = basePos
                         )
                         drawCircle(
                             color = EspressoBrown,
-                            radius = 5f,
+                            radius = 5.5f,
                             center = basePos
                         )
                         val baseLabel = textMeasurer.measure(
-                            text = "POS UTAMA SR",
+                            text = "POS KEAMANAN SR (START / KEMBALI)",
                             style = TextStyle(
                                 color = SoftGoldHighlight,
                                 fontSize = 9.sp,
@@ -678,7 +836,7 @@ fun VintageRealTimeMapPanel(
                         )
                         val baseTagW = baseLabel.size.width + 14f
                         val baseTagH = baseLabel.size.height + 6f
-                        val baseTagOffset = Offset(basePos.x - baseTagW / 2f, basePos.y - 35f)
+                        val baseTagOffset = Offset(basePos.x - baseTagW / 2f, basePos.y - 36f)
                         drawRoundRect(
                             color = EspressoBrown,
                             topLeft = baseTagOffset,
@@ -699,7 +857,7 @@ fun VintageRealTimeMapPanel(
                     }
 
                     // 5. Smoothly Gliding Live Vehicle Markers
-                    activeTrips.forEach { trip ->
+                    displayTrips.forEach { trip ->
                         val isFocused = selectedTrip?.id == trip.id
                         val smoothCoords = animatedVehiclePositions[trip.id]
                         val vLat = smoothCoords?.first ?: trip.currentLat
@@ -708,7 +866,9 @@ fun VintageRealTimeMapPanel(
 
                         if (vPos.x in -150f..(w + 150f) && vPos.y in -150f..(h + 150f)) {
                             drawCircle(
-                                color = if (isFocused) {
+                                color = if (trip.isArrivedBackAtSrGate || trip.tripStatusEnum == TripStatus.COMPLETED) {
+                                    VintageGreenSuccess.copy(alpha = pulseAlpha * 0.7f)
+                                } else if (isFocused) {
                                     EspressoBrown.copy(alpha = pulseAlpha * 0.65f)
                                 } else {
                                     VintageGreenSuccess.copy(alpha = pulseAlpha * 0.65f)
@@ -723,7 +883,13 @@ fun VintageRealTimeMapPanel(
                                 center = vPos
                             )
                             drawCircle(
-                                color = if (isFocused) EspressoBrown else RichLeatherBrown,
+                                color = if (trip.isArrivedBackAtSrGate || trip.tripStatusEnum == TripStatus.COMPLETED) {
+                                    VintageGreenSuccess
+                                } else if (isFocused) {
+                                    EspressoBrown
+                                } else {
+                                    RichLeatherBrown
+                                },
                                 radius = if (isFocused) 18f else 14f,
                                 center = vPos
                             )
@@ -733,7 +899,15 @@ fun VintageRealTimeMapPanel(
                                 center = vPos
                             )
 
-                            val calloutText = "${trip.vehicleName} • ${trip.currentSpeedKmh} km/j"
+                            val statusShort = when {
+                                trip.tripStatusEnum == TripStatus.COMPLETED ->
+                                    String.format(java.util.Locale.US, "Selesai • %.2f km", trip.totalDistanceTraveledKm)
+                                trip.isArrivedBackAtSrGate ->
+                                    String.format(java.util.Locale.US, "Tiba di Pos SR • %.2f km", trip.totalDistanceTraveledKm)
+                                else ->
+                                    String.format(java.util.Locale.US, "%d km/j • %.2f km", trip.currentSpeedKmh, trip.totalDistanceTraveledKm)
+                            }
+                            val calloutText = "${trip.vehicleName} • $statusShort"
                             val measuredCallout = textMeasurer.measure(
                                 text = calloutText,
                                 style = TextStyle(
@@ -764,6 +938,60 @@ fun VintageRealTimeMapPanel(
                                 topLeft = Offset(tagTopLeft.x + 9f, tagTopLeft.y + 5f)
                             )
                         }
+                    }
+
+                    // 6. Google Maps Style Dynamic Distance Scale Bar (Top-Left under chips)
+                    val metersPerPixel = (156543.03392 * cos(Math.toRadians(renderCenterLat))) / 2.0.pow(smoothZoom.toDouble())
+                    val targetBarPx = 95.0
+                    val rawMeters = metersPerPixel * targetBarPx
+                    val niceMeters = when {
+                        rawMeters >= 5000 -> 5000
+                        rawMeters >= 2000 -> 2000
+                        rawMeters >= 1000 -> 1000
+                        rawMeters >= 500 -> 500
+                        rawMeters >= 200 -> 200
+                        else -> 100
+                    }
+                    val barWidthPx = (niceMeters / metersPerPixel).toFloat().coerceIn(48f, 140f)
+                    val scaleLabel = if (niceMeters >= 1000) "${niceMeters / 1000} km" else "$niceMeters m"
+                    val scaleMeas = textMeasurer.measure(
+                        text = "Skala $scaleLabel",
+                        style = TextStyle(
+                            color = DeepInkBrown,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    val scaleBoxTopLeft = Offset(14f, h - (if (selectedTrip != null) 215f else 48f))
+                    if (scaleBoxTopLeft.y > 90f) {
+                        drawRoundRect(
+                            color = VintageCardCream.copy(alpha = 0.90f),
+                            topLeft = scaleBoxTopLeft,
+                            size = Size(barWidthPx + 20f, 26f),
+                            cornerRadius = CornerRadius(6f, 6f)
+                        )
+                        drawLine(
+                            color = EspressoBrown,
+                            start = Offset(scaleBoxTopLeft.x + 10f, scaleBoxTopLeft.y + 20f),
+                            end = Offset(scaleBoxTopLeft.x + 10f + barWidthPx, scaleBoxTopLeft.y + 20f),
+                            strokeWidth = 2.5f
+                        )
+                        drawLine(
+                            color = EspressoBrown,
+                            start = Offset(scaleBoxTopLeft.x + 10f, scaleBoxTopLeft.y + 15f),
+                            end = Offset(scaleBoxTopLeft.x + 10f, scaleBoxTopLeft.y + 22f),
+                            strokeWidth = 2.5f
+                        )
+                        drawLine(
+                            color = EspressoBrown,
+                            start = Offset(scaleBoxTopLeft.x + 10f + barWidthPx, scaleBoxTopLeft.y + 15f),
+                            end = Offset(scaleBoxTopLeft.x + 10f + barWidthPx, scaleBoxTopLeft.y + 22f),
+                            strokeWidth = 2.5f
+                        )
+                        drawText(
+                            textLayoutResult = scaleMeas,
+                            topLeft = Offset(scaleBoxTopLeft.x + 12f, scaleBoxTopLeft.y + 3f)
+                        )
                     }
                 }
 
@@ -798,7 +1026,7 @@ fun VintageRealTimeMapPanel(
                                 )
                                 Spacer(modifier = Modifier.width(5.dp))
                                 Text(
-                                    text = String.format(java.util.Locale.US, "OSM LIVE Z%.1f", smoothZoom),
+                                    text = String.format(java.util.Locale.US, "OSM LIVE Z%.1f • 2-Jari Zoom", smoothZoom),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = EspressoBrown,
                                     fontWeight = FontWeight.Bold
@@ -880,13 +1108,13 @@ fun VintageRealTimeMapPanel(
                     }
 
                     // Floating Vehicle Selector Chips right over the top of the map
-                    if (activeTrips.isNotEmpty()) {
+                    if (displayTrips.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            items(activeTrips, key = { it.id }) { trip ->
+                            items(displayTrips, key = { it.id }) { trip ->
                                 val isSelected = selectedTrip?.id == trip.id
                                 Surface(
                                     onClick = {
@@ -916,7 +1144,12 @@ fun VintageRealTimeMapPanel(
                                         )
                                         Spacer(modifier = Modifier.width(5.dp))
                                         Text(
-                                            text = "${trip.vehicleName} • ${trip.currentSpeedKmh} km/j",
+                                            text = String.format(
+                                                java.util.Locale.US,
+                                                "%s • %.2f km",
+                                                trip.vehicleName,
+                                                trip.totalDistanceTraveledKm
+                                            ),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = if (isSelected) SoftGoldHighlight else DeepInkBrown,
                                             fontWeight = FontWeight.Bold
@@ -962,12 +1195,12 @@ fun VintageRealTimeMapPanel(
                     )
                     MapControlButton(
                         icon = Icons.Default.FastForward,
-                        contentDescription = "Percepat Laju Posisi",
+                        contentDescription = "Percepat Pergerakan & Garis Rute Mobil",
                         onClick = onAdvanceManualStep
                     )
                 }
 
-                // Bottom-Left Compact Collapsible Telemetry Overlay Card on top of Map
+                // Bottom Compact Collapsible Telemetry & Route Recap Overlay Card on top of Map
                 if (selectedTrip != null) {
                     Card(
                         modifier = Modifier
@@ -977,13 +1210,16 @@ fun VintageRealTimeMapPanel(
                             .testTag("selected_trip_telemetry_card"),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = VintageCardCream.copy(alpha = 0.96f)
+                            containerColor = VintageCardCream.copy(alpha = 0.97f)
                         ),
-                        border = BorderStroke(1.5.dp, AntiqueGold),
+                        border = BorderStroke(
+                            width = 1.5.dp,
+                            color = if (selectedTrip.isArrivedBackAtSrGate) VintageGreenSuccess else AntiqueGold
+                        ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                            // Always-visible compact summary bar
+                            // Always-visible compact summary bar with Live Distance & Trail points
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -997,30 +1233,54 @@ fun VintageRealTimeMapPanel(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(34.dp)
+                                            .size(36.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(EspressoBrown),
+                                            .background(
+                                                if (selectedTrip.isArrivedBackAtSrGate || selectedTrip.tripStatusEnum == TripStatus.COMPLETED) {
+                                                    VintageGreenSuccess
+                                                } else {
+                                                    EspressoBrown
+                                                }
+                                            ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = vehicleIconFor(selectedTrip.vehicleId),
                                             contentDescription = selectedTrip.vehicleName,
                                             tint = MetallicGold,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(19.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(
-                                            text = "${selectedTrip.vehicleName} (${selectedTrip.vehiclePlate}) • ${selectedTrip.currentSpeedKmh} km/j",
+                                            text = String.format(
+                                                java.util.Locale.US,
+                                                "%s (%s) • Jarak: %.2f km",
+                                                selectedTrip.vehicleName,
+                                                selectedTrip.vehiclePlate,
+                                                selectedTrip.totalDistanceTraveledKm
+                                            ),
                                             style = MaterialTheme.typography.titleSmall,
                                             color = DeepInkBrown,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "Pembawa: ${selectedTrip.driverName} → ${selectedTrip.parsedDestinations.lastOrNull() ?: ""}",
+                                            text = when {
+                                                selectedTrip.tripStatusEnum == TripStatus.COMPLETED ->
+                                                    "Rekap Selesai • Diakhiri Keamanan (${selectedTrip.completedByOfficer.ifBlank { "Pos SR" }})"
+                                                selectedTrip.isArrivedBackAtSrGate ->
+                                                    "Sudah Kembali di Gerbang SR • Menunggu Diakhiri Keamanan"
+                                                else ->
+                                                    "Pembawa: ${selectedTrip.driverName} • ${selectedTrip.currentSpeedKmh} km/j • ${selectedTrip.parsedTrailCoordinates.size} titik rute"
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = SoftMochaText,
+                                            color = if (selectedTrip.isArrivedBackAtSrGate || selectedTrip.tripStatusEnum == TripStatus.COMPLETED) {
+                                                VintageGreenSuccess
+                                            } else {
+                                                SoftMochaText
+                                            },
+                                            fontWeight = FontWeight.SemiBold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -1039,7 +1299,7 @@ fun VintageRealTimeMapPanel(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = if (isTelemetryExpanded) "Ringkas" else "Detail",
+                                                text = if (isTelemetryExpanded) "Ringkas" else "Rekap Rute",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = EspressoBrown,
                                                 fontWeight = FontWeight.Bold
@@ -1059,14 +1319,74 @@ fun VintageRealTimeMapPanel(
                                 Column {
                                     Spacer(modifier = Modifier.height(8.dp))
 
-                                    Text(
-                                        text = "Rute: Pos Utama SR → ${selectedTrip.parsedDestinations.joinToString(" → ")}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = DeepInkBrown,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    // Full Round-Trip Route Summary Pill
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = VintageParchmentSurface,
+                                        border = BorderStroke(1.dp, VintageWarmBorder),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Route,
+                                                        contentDescription = null,
+                                                        tint = EspressoBrown,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "REKAP RUTE & GARIS PERJALANAN:",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = EspressoBrown,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "${(selectedTrip.progressPercent * 100).toInt().coerceIn(0, 100)}% Rute PP",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = VintageGreenSuccess,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Text(
+                                                text = selectedTrip.fullRouteSummaryText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = DeepInkBrown,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = String.format(
+                                                        java.util.Locale.US,
+                                                        "Jarak Tempuh: %.2f km",
+                                                        selectedTrip.totalDistanceTraveledKm
+                                                    ),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = EspressoBrown,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = "Odo: ${selectedTrip.startOdometerKm} ➔ ${selectedTrip.computedEndOdometerKm} km",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = SoftMochaText,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
 
                                     Spacer(modifier = Modifier.height(6.dp))
 
@@ -1076,7 +1396,11 @@ fun VintageRealTimeMapPanel(
                                             .fillMaxWidth()
                                             .height(6.dp)
                                             .clip(RoundedCornerShape(50)),
-                                        color = AntiqueGold,
+                                        color = if (selectedTrip.isArrivedBackAtSrGate || selectedTrip.tripStatusEnum == TripStatus.COMPLETED) {
+                                            VintageGreenSuccess
+                                        } else {
+                                            AntiqueGold
+                                        },
                                         trackColor = VintageParchmentSurface
                                     )
 
@@ -1087,57 +1411,89 @@ fun VintageRealTimeMapPanel(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                try {
-                                                    val uri = Uri.parse(
-                                                        "geo:${selectedTrip.currentLat},${selectedTrip.currentLng}?q=${selectedTrip.currentLat},${selectedTrip.currentLng}(${Uri.encode(selectedTrip.vehicleName)})"
-                                                    )
-                                                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    try {
+                                                        val uri = Uri.parse(
+                                                            "geo:${selectedTrip.currentLat},${selectedTrip.currentLng}?q=${selectedTrip.currentLat},${selectedTrip.currentLng}(${Uri.encode(selectedTrip.vehicleName)})"
+                                                        )
+                                                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        }
+                                                        context.startActivity(intent)
+                                                    } catch (_: Exception) {
                                                     }
-                                                    context.startActivity(intent)
-                                                } catch (_: Exception) {
+                                                },
+                                                border = BorderStroke(1.dp, AntiqueGold),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Navigation,
+                                                    contentDescription = "Rute Eksternal",
+                                                    tint = EspressoBrown,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Navigasi",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = EspressoBrown
+                                                )
+                                            }
+
+                                            if (selectedTrip.tripStatusEnum == TripStatus.IN_TRANSIT && !selectedTrip.isArrivedBackAtSrGate) {
+                                                OutlinedButton(
+                                                    onClick = onAdvanceManualStep,
+                                                    border = BorderStroke(1.dp, EspressoBrown),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                                                    modifier = Modifier.testTag("advance_route_step_button")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.FastForward,
+                                                        contentDescription = "Lanjut Rute",
+                                                        tint = EspressoBrown,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "Maju Rute",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = EspressoBrown
+                                                    )
                                                 }
-                                            },
-                                            border = BorderStroke(1.dp, AntiqueGold),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Navigation,
-                                                contentDescription = "Rute Eksternal",
-                                                tint = EspressoBrown,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "Navigasi",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = EspressoBrown
-                                            )
+                                            }
                                         }
 
-                                        Button(
-                                            onClick = { onCompleteTrip(selectedTrip) },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = EspressoBrown,
-                                                contentColor = SoftGoldHighlight
-                                            ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                            modifier = Modifier.testTag("complete_trip_map_button")
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.CheckCircle,
-                                                contentDescription = "Selesai",
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(5.dp))
-                                            Text(
-                                                text = "Selesai Perjalanan",
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
+                                        if (selectedTrip.tripStatusEnum == TripStatus.IN_TRANSIT) {
+                                            Button(
+                                                onClick = { onCompleteTrip(selectedTrip) },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (selectedTrip.isArrivedBackAtSrGate) VintageGreenSuccess else EspressoBrown,
+                                                    contentColor = SoftGoldHighlight
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                modifier = Modifier.testTag("complete_trip_map_button")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Shield,
+                                                    contentDescription = "Akhiri oleh Keamanan",
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(5.dp))
+                                                Text(
+                                                    text = if (selectedTrip.isArrivedBackAtSrGate) {
+                                                        "Akhiri Kembali di SR (Keamanan)"
+                                                    } else {
+                                                        "Akhiri Kembali di SR"
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }

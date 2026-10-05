@@ -32,8 +32,10 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -124,7 +126,8 @@ fun UserMonitorDashboardScreen(
             },
             onAdvanceManualStep = onAdvanceManualStep,
             onLocationPermissionResult = onLocationPermissionResult,
-            onDismiss = onCloseMapPopup
+            onDismiss = onCloseMapPopup,
+            allTrips = uiState.allTrips
         )
     }
 
@@ -194,10 +197,10 @@ fun UserMonitorDashboardScreen(
                     icon = {
                         Icon(
                             imageVector = Icons.Default.History,
-                            contentDescription = "Riwayat"
+                            contentDescription = "Rekap & Log"
                         )
                     },
-                    label = { Text("Riwayat Log") },
+                    label = { Text("Rekap & Rute") },
                     colors = vintageNavBarColors(),
                     modifier = Modifier.testTag("user_tab_history")
                 )
@@ -240,7 +243,8 @@ fun UserMonitorDashboardScreen(
                     onAdvanceManualStep = onAdvanceManualStep,
                     onLocationPermissionResult = onLocationPermissionResult,
                     isInsidePopup = false,
-                    onOpenFullPopup = { onOpenMapPopup(uiState.session.focusedMapTripId) }
+                    onOpenFullPopup = { onOpenMapPopup(uiState.session.focusedMapTripId) },
+                    allTrips = uiState.allTrips
                 )
 
                 2 -> TripHistoryListTab(
@@ -707,23 +711,43 @@ private fun ActiveOrPendingTripCard(
             ) {
                 Column(modifier = Modifier.padding(10.dp)) {
                     Text(
-                        text = "RUTE TUJUAN BEPERGIAN:",
+                        text = "RUTE PERJALANAN PP (POS SR ➔ TUJUAN ➔ POS SR):",
                         style = MaterialTheme.typography.labelSmall,
                         color = EspressoBrown,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    trip.parsedDestinations.forEachIndexed { idx, destName ->
+                    Text(
+                        text = trip.fullRouteSummaryText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DeepInkBrown,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
-                            text = "${idx + 1}. $destName",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = String.format(
+                                java.util.Locale.US,
+                                "Jarak Ditempuh: %.2f km",
+                                trip.totalDistanceTraveledKm
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VintageGreenSuccess,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Odo: ${trip.startOdometerKm} ➔ ${trip.computedEndOdometerKm} km",
+                            style = MaterialTheme.typography.labelSmall,
                             color = DeepInkBrown,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
-                        text = "Estimasi Waktu: ${trip.departureEstimate} s/d ${trip.returnEstimate} • Odo Awal: ${trip.startOdometerKm} km",
+                        text = "Estimasi Jam: ${trip.departureEstimate} s/d ${trip.returnEstimate} • ${trip.parsedTrailCoordinates.size} titik jejak peta",
                         style = MaterialTheme.typography.labelSmall,
                         color = SoftMochaText
                     )
@@ -755,7 +779,7 @@ private fun ActiveOrPendingTripCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Pantau di Peta Live", style = MaterialTheme.typography.labelMedium)
+                        Text("Pantau Garis Rute", style = MaterialTheme.typography.labelMedium)
                     }
 
                     OutlinedButton(
@@ -765,14 +789,14 @@ private fun ActiveOrPendingTripCard(
                         modifier = Modifier.testTag("finish_trip_btn_${trip.id}")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                            imageVector = Icons.Default.Shield,
                             contentDescription = null,
                             tint = VintageGreenSuccess,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Selesai",
+                            text = "Akhiri di SR",
                             style = MaterialTheme.typography.labelMedium,
                             color = VintageGreenSuccess
                         )
@@ -822,6 +846,10 @@ fun TripHistoryListTab(
     onViewOnMap: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val totalFleetDistanceKm = trips.sumOf { it.totalDistanceTraveledKm }
+    val completedTripsCount = trips.count { it.tripStatusEnum == TripStatus.COMPLETED }
+    val activeTripsCount = trips.count { it.tripStatusEnum == TripStatus.IN_TRANSIT }
+
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -833,16 +861,152 @@ fun TripHistoryListTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Rekapitulasi Perjalanan & Jarak Tempuh Header Card
             item {
-                VintageOrnamentalDivider(label = "DAFTAR SELURUH LOG PERJALANAN (${trips.size})")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("trip_recap_summary_banner"),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(2.dp, MetallicGold),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(EspressoBrown, RichLeatherBrown)
+                                )
+                            )
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Route,
+                                    contentDescription = null,
+                                    tint = MetallicGold,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Rekap Perjalanan & Jarak Tempuh SR",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SoftGoldHighlight,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Jejak rute otomatis dari persetujuan Keamanan hingga kembali ke SR",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = VintageCreamBg.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = SoftGoldHighlight.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, MetallicGold),
+                                modifier = Modifier.weight(1.2f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "%.2f km", totalFleetDistanceKm),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SoftGoldHighlight,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Total Jarak Tempuh",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = VintageCreamBg
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = SoftGoldHighlight.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, MetallicGold),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "$completedTripsCount Selesai",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SoftGoldHighlight,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Kembali ke Pos SR",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = VintageCreamBg
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = SoftGoldHighlight.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, MetallicGold),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "$activeTripsCount Jalan",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SoftGoldHighlight,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Rute Aktif",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = VintageCreamBg
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                VintageOrnamentalDivider(label = "REKAP RUTE & LOG PERJALANAN (${trips.size})")
             }
 
             items(trips, key = { it.id }) { trip ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("history_trip_recap_card_${trip.id}"),
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = VintageCardCream),
-                    border = BorderStroke(1.dp, VintageWarmBorder)
+                    border = BorderStroke(
+                        width = 1.5.dp,
+                        color = if (trip.tripStatusEnum == TripStatus.COMPLETED) VintageGreenSuccess else AntiqueGold
+                    )
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(
@@ -850,14 +1014,26 @@ fun TripHistoryListTab(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${trip.vehicleName} • ${trip.vehiclePlate}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = EspressoBrown
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = vehicleIconFor(trip.vehicleId),
+                                    contentDescription = trip.vehicleName,
+                                    tint = EspressoBrown,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "${trip.vehicleName} • ${trip.vehiclePlate}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = EspressoBrown,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             TripStatusBadge(status = trip.tripStatusEnum)
                         }
+
                         Spacer(modifier = Modifier.height(6.dp))
+
                         Text(
                             text = "Pembawa: ${trip.driverName} (${trip.driverDivision})",
                             style = MaterialTheme.typography.bodySmall,
@@ -865,36 +1041,110 @@ fun TripHistoryListTab(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Tujuan: ${trip.parsedDestinations.joinToString(" → ")}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = SoftMochaText
-                        )
-                        Text(
                             text = "Keperluan: ${trip.purpose}",
                             style = MaterialTheme.typography.bodySmall,
                             color = SoftMochaText
                         )
-                        if (trip.securityNotes.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = VintageParchmentSurface,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Rekap Rute Perjalanan & Jarak Tempuh Box
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = VintageParchmentSurface,
+                            border = BorderStroke(1.dp, VintageWarmBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
                                 Text(
-                                    text = "Catatan Keamanan (${trip.approvedByOfficer.ifBlank { "Pos SR" }}): ${trip.securityNotes}",
+                                    text = "REKAP RUTE PERJALANAN (PP POS UTAMA SR):",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = EspressoBrown,
-                                    modifier = Modifier.padding(8.dp)
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = trip.fullRouteSummaryText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = DeepInkBrown,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = String.format(
+                                            java.util.Locale.US,
+                                            "Jarak Tempuh: %.2f km",
+                                            trip.totalDistanceTraveledKm
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = VintageGreenSuccess,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Odometer: ${trip.startOdometerKm} ➔ ${trip.computedEndOdometerKm} km",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = DeepInkBrown,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Titik Garis Perjalanan: ${trip.parsedTrailCoordinates.size} titik koordinat • Jam: ${trip.departureEstimate} - ${trip.returnEstimate}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = SoftMochaText
                                 )
                             }
                         }
-                        if (trip.tripStatusEnum == TripStatus.IN_TRANSIT) {
+
+                        if (trip.approvedByOfficer.isNotBlank() || trip.completedByOfficer.isNotBlank() || trip.securityNotes.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = VintageGreenBg.copy(alpha = 0.65f),
+                                border = BorderStroke(1.dp, VintageWarmBorder),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    if (trip.approvedByOfficer.isNotBlank()) {
+                                        Text(
+                                            text = "Disetujui Keluar SR oleh: ${trip.approvedByOfficer}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = EspressoBrown,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    if (trip.completedByOfficer.isNotBlank()) {
+                                        Text(
+                                            text = "Diakhiri Kembali di SR oleh Keamanan: ${trip.completedByOfficer}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = VintageGreenSuccess,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    if (trip.securityNotes.isNotBlank()) {
+                                        Text(
+                                            text = "Catatan Pos: ${trip.securityNotes}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = DeepInkBrown
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (trip.tripStatusEnum == TripStatus.IN_TRANSIT || trip.tripStatusEnum == TripStatus.COMPLETED) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { onViewOnMap(trip.id) },
-                                border = BorderStroke(1.dp, EspressoBrown),
-                                shape = RoundedCornerShape(8.dp)
+                                border = BorderStroke(1.2.dp, EspressoBrown),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("history_view_route_map_btn_${trip.id}")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
@@ -903,7 +1153,15 @@ fun TripHistoryListTab(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Lihat Posisi di Peta Real-Time", color = EspressoBrown)
+                                Text(
+                                    text = if (trip.tripStatusEnum == TripStatus.COMPLETED) {
+                                        "Lihat Garis Rekap Rute di Peta (${String.format(java.util.Locale.US, "%.2f km", trip.totalDistanceTraveledKm)})"
+                                    } else {
+                                        "Pantau Garis Perjalanan Live di Peta"
+                                    },
+                                    color = EspressoBrown,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }

@@ -105,14 +105,14 @@ class FleetRepository(private val dao: FleetDao) {
         dao.insertDestinations(defaultDestinations)
 
         val now = System.currentTimeMillis()
-        // Seed 1 active trip (Avanza Veloz in transit), 1 pending trip (Gran Max waiting security approval), 1 completed trip
+        // Seed 1 active trip (Avanza Veloz in transit with trail from SR), 1 pending trip (Gran Max waiting security approval), 1 completed trip (N-Max with full round-trip trail back to SR)
         val sampleTrips = listOf(
             TripRequestEntity(
                 vehicleId = "VH_VELOZ",
                 vehicleName = "Avanza Veloz",
                 vehiclePlate = "L 1925 SR",
                 driverName = "Bapak Hendra Wijaya",
-                driverDivision = "Divisi Operasional & Humas",
+                driverDivision = "Guru",
                 purpose = "Penjemputan Tamu Direksi & Kunjungan Kantor Cabang",
                 destinationsText = "Kantor Cabang Pusat|Bandara Internasional Juanda T2",
                 destinationCoordsText = "-7.2654,112.7418;-7.3798,112.7869",
@@ -122,12 +122,19 @@ class FleetRepository(private val dao: FleetDao) {
                 status = TripStatus.IN_TRANSIT.name,
                 securityNotes = "Dokumen surat jalan & STNK lengkap. Disetujui keluar gerbang utama.",
                 approvedByOfficer = "Komandan Pos Suryo",
-                currentLat = -7.2618,
-                currentLng = 112.7465,
+                completedByOfficer = "",
+                currentLat = -7.2654,
+                currentLng = 112.7418,
                 currentSpeedKmh = 46,
-                progressPercent = 0.28f,
+                progressPercent = 0.34f,
                 currentTargetIndex = 0,
                 isGpsRealDevice = false,
+                routeTrailCoordsText = "-7.2575,112.7521;-7.2595,112.7495;-7.2618,112.7465;-7.2638,112.7440;-7.2654,112.7418",
+                totalDistanceTraveledKm = 1.46,
+                endOdometerKm = 42812,
+                isArrivedBackAtSrGate = false,
+                approvedAt = now - 2400_000L,
+                completedAt = 0L,
                 createdAt = now - 3600_000L,
                 updatedAt = now - 60_000L
             ),
@@ -136,8 +143,8 @@ class FleetRepository(private val dao: FleetDao) {
                 vehicleName = "Gran Max",
                 vehiclePlate = "L 8841 SR",
                 driverName = "Mas Bagus Prasetyo",
-                driverDivision = "Divisi Gudang & Pengiriman",
-                purpose = "Pengambilan Suku Cadang & Distribusi Barang ke Gudang Utama",
+                driverDivision = "Dapur",
+                purpose = "Pengambilan Logistik Dapur & Distribusi Bahan Pangan Asrama",
                 destinationsText = "Gudang Logistik Utama SR|Workshop & Bengkel Resmi SR",
                 destinationCoordsText = "-7.3185,112.7712;-7.3091,112.7345",
                 departureEstimate = "09:45 WIB",
@@ -146,12 +153,19 @@ class FleetRepository(private val dao: FleetDao) {
                 status = TripStatus.PENDING_APPROVAL.name,
                 securityNotes = "",
                 approvedByOfficer = "",
+                completedByOfficer = "",
                 currentLat = BASE_LAT,
                 currentLng = BASE_LNG,
                 currentSpeedKmh = 0,
                 progressPercent = 0f,
                 currentTargetIndex = 0,
                 isGpsRealDevice = false,
+                routeTrailCoordsText = "$BASE_LAT,$BASE_LNG",
+                totalDistanceTraveledKm = 0.0,
+                endOdometerKm = 68190,
+                isArrivedBackAtSrGate = false,
+                approvedAt = 0L,
+                completedAt = 0L,
                 createdAt = now - 900_000L,
                 updatedAt = now - 900_000L
             ),
@@ -160,22 +174,29 @@ class FleetRepository(private val dao: FleetDao) {
                 vehicleName = "N-Max",
                 vehiclePlate = "L 4029 SR",
                 driverName = "Rizky Pratama",
-                driverDivision = "Kurir Dokumen & Administrasi",
-                purpose = "Antar Dokumen Invoice Resmi ke Kantor Cabang",
-                destinationsText = "Kantor Cabang Pusat",
-                destinationCoordsText = "-7.2654,112.7418",
+                driverDivision = "TU Tendik",
+                purpose = "Antar Dokumen Resmi Sekolah ke Kantor Cabang & Kembali ke SR",
+                destinationsText = "Kantor Cabang Pusat|SPBU & Pusat Pengisian BBM",
+                destinationCoordsText = "-7.2654,112.7418;-7.2720,112.7505",
                 departureEstimate = "07:15 WIB",
                 returnEstimate = "08:20 WIB",
                 startOdometerKm = 15420,
                 status = TripStatus.COMPLETED.name,
-                securityNotes = "Unit N-Max telah kembali ke garasi dengan aman.",
+                securityNotes = "Unit N-Max telah kembali ke Pos Utama SR dengan aman & odometer dicatat oleh Keamanan.",
                 approvedByOfficer = "Komandan Pos Suryo",
+                completedByOfficer = "Komandan Pos Suryo",
                 currentLat = BASE_LAT,
                 currentLng = BASE_LNG,
                 currentSpeedKmh = 0,
                 progressPercent = 1.0f,
-                currentTargetIndex = 0,
+                currentTargetIndex = 1,
                 isGpsRealDevice = false,
+                routeTrailCoordsText = "-7.2575,112.7521;-7.2612,112.7470;-7.2654,112.7418;-7.2690,112.7462;-7.2720,112.7505;-7.2648,112.7514;-7.2575,112.7521",
+                totalDistanceTraveledKm = 4.38,
+                endOdometerKm = 15425,
+                isArrivedBackAtSrGate = true,
+                approvedAt = now - 6800_000L,
+                completedAt = now - 4200_000L,
                 createdAt = now - 7200_000L,
                 updatedAt = now - 4200_000L
             )
@@ -454,24 +475,37 @@ class FleetRepository(private val dao: FleetDao) {
     suspend fun approveTrip(tripId: Int, officerName: String, notes: String) {
         val trip = dao.getTripById(tripId) ?: return
         val firstCoord = trip.parsedCoordinates.firstOrNull()
-        // Move vehicle slightly out of gate upon approval so it starts moving on the map
+        val now = System.currentTimeMillis()
+        // Move vehicle slightly out of SR gate upon security approval and initialize breadcrumb trail from SR Base
         val initialLat = if (firstCoord != null) {
-            BASE_LAT + (firstCoord.first - BASE_LAT) * 0.08
+            BASE_LAT + (firstCoord.first - BASE_LAT) * 0.06
         } else BASE_LAT
         val initialLng = if (firstCoord != null) {
-            BASE_LNG + (firstCoord.second - BASE_LNG) * 0.08
+            BASE_LNG + (firstCoord.second - BASE_LNG) * 0.06
         } else BASE_LNG
+
+        val initialDistKm = haversineKm(BASE_LAT, BASE_LNG, initialLat, initialLng)
+        val initialTrail = buildString {
+            append(formatCoordPair(BASE_LAT, BASE_LNG))
+            append(";")
+            append(formatCoordPair(initialLat, initialLng))
+        }
 
         dao.updateTripRequest(
             trip.copy(
                 status = TripStatus.IN_TRANSIT.name,
                 approvedByOfficer = officerName.ifBlank { "Petugas Pos Keamanan" },
-                securityNotes = notes.ifBlank { "Izin keluar disetujui. Selamat jalan & utamakan keselamatan." },
+                securityNotes = notes.ifBlank { "Izin keluar disetujui Keamanan. Jejak rute & jarak tempuh direkam otomatis." },
                 currentLat = initialLat,
                 currentLng = initialLng,
                 currentSpeedKmh = if (trip.vehicleId == "VH_NMAX") 38 else 45,
-                progressPercent = 0.08f,
-                updatedAt = System.currentTimeMillis()
+                progressPercent = 0.04f,
+                routeTrailCoordsText = initialTrail,
+                totalDistanceTraveledKm = roundKm(initialDistKm),
+                endOdometerKm = trip.startOdometerKm + kotlin.math.ceil(initialDistKm).toInt(),
+                isArrivedBackAtSrGate = false,
+                approvedAt = now,
+                updatedAt = now
             )
         )
     }
@@ -489,22 +523,59 @@ class FleetRepository(private val dao: FleetDao) {
         )
     }
 
-    suspend fun completeTrip(tripId: Int, completionNote: String = "") {
+    suspend fun completeTrip(
+        tripId: Int,
+        officerName: String = "Komandan Pos Suryo",
+        completionNote: String = ""
+    ) {
         val trip = dao.getTripById(tripId) ?: return
+        val now = System.currentTimeMillis()
+        // Ensure the trail connects all visited waypoints and closes cleanly back at Pos Utama SR
+        val existingTrail = trip.parsedTrailCoordinates.toMutableList()
+        if (existingTrail.isEmpty()) {
+            existingTrail.add(Pair(BASE_LAT, BASE_LNG))
+        }
+        // If completed early before passing all destinations, include planned waypoints so full route trail is preserved
+        if (trip.progressPercent < 0.85f) {
+            for (destCoord in trip.parsedCoordinates) {
+                val alreadyNear = existingTrail.any { haversineKm(it.first, it.second, destCoord.first, destCoord.second) < 0.25 }
+                if (!alreadyNear) {
+                    existingTrail.add(destCoord)
+                }
+            }
+        }
+        val lastPt = existingTrail.last()
+        val distToGate = haversineKm(lastPt.first, lastPt.second, BASE_LAT, BASE_LNG)
+        if (distToGate > 0.02) {
+            existingTrail.add(Pair(BASE_LAT, BASE_LNG))
+        }
+
+        val fullTrailKm = calculatePolylineDistanceKm(existingTrail)
+            .coerceAtLeast(trip.totalDistanceTraveledKm + distToGate)
+        val finalDistanceKm = roundKm(fullTrailKm.coerceAtLeast(0.5))
+        val finalOdometer = trip.startOdometerKm + kotlin.math.ceil(finalDistanceKm).toInt()
+
         val updatedNotes = if (completionNote.isNotBlank()) {
             "${trip.securityNotes} • $completionNote".trim(' ', '•')
         } else {
-            trip.securityNotes
+            "${trip.securityNotes} • Diakhiri oleh Keamanan ($officerName) setelah kembali di Pos Utama SR.".trim(' ', '•')
         }
+
         dao.updateTripRequest(
             trip.copy(
                 status = TripStatus.COMPLETED.name,
+                completedByOfficer = officerName.ifBlank { "Komandan Pos Suryo" },
                 currentLat = BASE_LAT,
                 currentLng = BASE_LNG,
                 currentSpeedKmh = 0,
                 progressPercent = 1.0f,
+                routeTrailCoordsText = existingTrail.joinToString(";") { formatCoordPair(it.first, it.second) },
+                totalDistanceTraveledKm = finalDistanceKm,
+                endOdometerKm = finalOdometer,
+                isArrivedBackAtSrGate = true,
+                completedAt = now,
                 securityNotes = updatedNotes,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = now
             )
         )
     }
@@ -519,6 +590,24 @@ class FleetRepository(private val dao: FleetDao) {
         val matchingTrip = activeTrips.firstOrNull {
             it.driverName.equals(driverName, ignoreCase = true)
         } ?: activeTrips.firstOrNull() ?: return
+
+        val existingTrail = matchingTrip.parsedTrailCoordinates.toMutableList()
+        if (existingTrail.isEmpty()) {
+            existingTrail.add(Pair(BASE_LAT, BASE_LNG))
+        }
+        val lastPt = existingTrail.last()
+        val stepKm = haversineKm(lastPt.first, lastPt.second, lat, lng)
+        if (stepKm >= 0.015) {
+            existingTrail.add(Pair(lat, lng))
+        }
+        val trimmedTrail = if (existingTrail.size > 160) {
+            listOf(existingTrail.first()) + existingTrail.takeLast(159)
+        } else {
+            existingTrail
+        }
+
+        val newTotalKm = roundKm(matchingTrip.totalDistanceTraveledKm + stepKm)
+        val newEndOdo = matchingTrip.startOdometerKm + kotlin.math.ceil(newTotalKm).toInt()
 
         val coords = matchingTrip.parsedCoordinates
         val target = coords.getOrNull(matchingTrip.currentTargetIndex) ?: coords.lastOrNull()
@@ -535,6 +624,9 @@ class FleetRepository(private val dao: FleetDao) {
                 currentSpeedKmh = speedKmh.coerceAtLeast(12),
                 progressPercent = computedProgress,
                 isGpsRealDevice = true,
+                routeTrailCoordsText = trimmedTrail.joinToString(";") { formatCoordPair(it.first, it.second) },
+                totalDistanceTraveledKm = newTotalKm,
+                endOdometerKm = newEndOdo,
                 updatedAt = System.currentTimeMillis()
             )
         )
@@ -547,21 +639,36 @@ class FleetRepository(private val dao: FleetDao) {
             val coords = trip.parsedCoordinates
             if (coords.isEmpty()) continue
 
-            // Build full waypoint list: Base -> Dest 1 -> Dest 2 -> ... -> Base
+            // Full round-trip waypoint list: Pos Utama SR -> Dest 1 -> Dest 2 -> ... -> Kembali ke Pos Utama SR
             val waypoints = buildList {
                 add(Pair(BASE_LAT, BASE_LNG))
                 addAll(coords)
+                add(Pair(BASE_LAT, BASE_LNG))
             }
 
             val totalSegments = waypoints.size - 1
             if (totalSegments <= 0) continue
 
-            val increment = 0.025f * stepMultiplier
-            var newProgress = trip.progressPercent + increment
-            if (newProgress >= 0.98f) {
-                // Loop gently around destination or return path so user can always observe live motion until marked completed
-                newProgress = 0.12f
+            // If vehicle has already arrived back at SR gate (progress >= 1.0f), it waits at Pos SR for Security to end the trip
+            if (trip.progressPercent >= 1.0f || trip.isArrivedBackAtSrGate) {
+                if (trip.currentSpeedKmh != 0 || !trip.isArrivedBackAtSrGate) {
+                    dao.updateTripRequest(
+                        trip.copy(
+                            currentLat = BASE_LAT,
+                            currentLng = BASE_LNG,
+                            currentSpeedKmh = 0,
+                            progressPercent = 1.0f,
+                            isArrivedBackAtSrGate = true,
+                            updatedAt = now
+                        )
+                    )
+                }
+                continue
             }
+
+            val increment = 0.022f * stepMultiplier
+            val newProgress = (trip.progressPercent + increment).coerceAtMost(1.0f)
+            val hasArrivedBackAtSr = newProgress >= 1.0f
 
             val scaledProgress = newProgress * totalSegments
             val segIndex = scaledProgress.toInt().coerceIn(0, totalSegments - 1)
@@ -570,8 +677,37 @@ class FleetRepository(private val dao: FleetDao) {
             val startPt = waypoints[segIndex]
             val endPt = waypoints[segIndex + 1]
 
-            val interpolatedLat = startPt.first + (endPt.first - startPt.first) * localT
-            val interpolatedLng = startPt.second + (endPt.second - startPt.second) * localT
+            // Add realistic road-curve deflection along each segment so the trail follows an authentic street path
+            val curveFactor = sin(localT * Math.PI).toFloat() * 0.0014f * (if (segIndex % 2 == 0) 1f else -1f)
+            val interpolatedLat = if (hasArrivedBackAtSr) {
+                BASE_LAT
+            } else {
+                startPt.first + (endPt.first - startPt.first) * localT + curveFactor
+            }
+            val interpolatedLng = if (hasArrivedBackAtSr) {
+                BASE_LNG
+            } else {
+                startPt.second + (endPt.second - startPt.second) * localT - curveFactor * 0.8f
+            }
+
+            // Append new coordinate to breadcrumb trail and accumulate real distance in KM
+            val existingTrail = trip.parsedTrailCoordinates.toMutableList()
+            if (existingTrail.isEmpty()) {
+                existingTrail.add(Pair(BASE_LAT, BASE_LNG))
+            }
+            val lastPt = existingTrail.last()
+            val stepDistanceKm = haversineKm(lastPt.first, lastPt.second, interpolatedLat, interpolatedLng)
+            if (stepDistanceKm >= 0.01 || hasArrivedBackAtSr) {
+                existingTrail.add(Pair(interpolatedLat, interpolatedLng))
+            }
+            val cappedTrail = if (existingTrail.size > 160) {
+                listOf(existingTrail.first()) + existingTrail.takeLast(159)
+            } else {
+                existingTrail
+            }
+
+            val newTotalDistanceKm = roundKm(trip.totalDistanceTraveledKm + stepDistanceKm)
+            val newEndOdometer = trip.startOdometerKm + kotlin.math.ceil(newTotalDistanceKm).toInt()
 
             val baseSpeed = when (trip.vehicleId) {
                 "VH_NMAX" -> 42
@@ -579,7 +715,10 @@ class FleetRepository(private val dao: FleetDao) {
                 else -> 52
             }
             val speedVariation = ((now / 1000L + trip.id * 7) % 11).toInt() - 5
-            val newSpeed = (baseSpeed + speedVariation).coerceAtLeast(20)
+            val newSpeed = if (hasArrivedBackAtSr) 0 else (baseSpeed + speedVariation).coerceAtLeast(20)
+
+            // Determine current target index (if on final segment, it's returning to Pos Utama SR)
+            val targetIdx = segIndex.coerceIn(0, coords.size)
 
             dao.updateTripRequest(
                 trip.copy(
@@ -587,11 +726,39 @@ class FleetRepository(private val dao: FleetDao) {
                     currentLng = interpolatedLng,
                     currentSpeedKmh = newSpeed,
                     progressPercent = newProgress,
-                    currentTargetIndex = segIndex.coerceIn(0, coords.size - 1),
+                    currentTargetIndex = targetIdx,
+                    routeTrailCoordsText = cappedTrail.joinToString(";") { formatCoordPair(it.first, it.second) },
+                    totalDistanceTraveledKm = newTotalDistanceKm,
+                    endOdometerKm = newEndOdometer,
+                    isArrivedBackAtSrGate = hasArrivedBackAtSr,
                     updatedAt = now
                 )
             )
         }
+    }
+
+    private fun calculatePolylineDistanceKm(points: List<Pair<Double, Double>>): Double {
+        if (points.size < 2) return 0.0
+        var sum = 0.0
+        for (i in 0 until points.size - 1) {
+            sum += haversineKm(
+                points[i].first,
+                points[i].second,
+                points[i + 1].first,
+                points[i + 1].second
+            )
+        }
+        return sum
+    }
+
+    private fun formatCoordPair(lat: Double, lng: Double): String {
+        val rLat = kotlin.math.round(lat * 100000.0) / 100000.0
+        val rLng = kotlin.math.round(lng * 100000.0) / 100000.0
+        return "$rLat,$rLng"
+    }
+
+    private fun roundKm(value: Double): Double {
+        return kotlin.math.round(value * 100.0) / 100.0
     }
 
     private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
