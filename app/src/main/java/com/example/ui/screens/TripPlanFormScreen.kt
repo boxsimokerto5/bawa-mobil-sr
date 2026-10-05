@@ -62,17 +62,36 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.example.data.DestinationEntity
@@ -80,11 +99,16 @@ import com.example.data.FleetRepository
 import com.example.data.TripRequestEntity
 import com.example.data.TripStatus
 import com.example.data.VehicleEntity
+import com.example.ui.components.OsmPlaceSearchService
+import com.example.ui.components.OsmPlaceSuggestion
 import com.example.ui.components.OsmTileStore
 import com.example.ui.components.VintageOrnamentalDivider
 import com.example.ui.components.WebMercator
 import com.example.ui.components.vehicleIconFor
+import kotlinx.coroutines.delay
 import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import com.example.ui.theme.AntiqueGold
 import com.example.ui.theme.DeepInkBrown
@@ -700,12 +724,60 @@ fun TripPlanFormScreen(
         }
     }
 
-    // Modal Dialog to Add Custom Destination with Real OpenStreetMap Picker
+    // Modal Dialog to Add Custom Destination with Real OpenStreetMap Search Auto-Suggest & Pin Picker
     if (showAddDestinationDialog) {
         val context = LocalContext.current
         var pickedLat by remember { mutableDoubleStateOf(-7.2819) }
         var pickedLng by remember { mutableDoubleStateOf(112.7382) }
-        val pickerZoom = 13
+        var pickerZoom by remember { mutableFloatStateOf(14.5f) }
+        val smoothPickerZoom by animateFloatAsState(
+            targetValue = pickerZoom,
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "picker_zoom"
+        )
+        val animatedPickedLat by animateFloatAsState(
+            targetValue = pickedLat.toFloat(),
+            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+            label = "picker_lat"
+        )
+        val animatedPickedLng by animateFloatAsState(
+            targetValue = pickedLng.toFloat(),
+            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+            label = "picker_lng"
+        )
+
+        var isPinnedFromSuggestion by remember { mutableStateOf(false) }
+        var isSearchingPlaces by remember { mutableStateOf(false) }
+        var showSuggestionsDropdown by remember { mutableStateOf(true) }
+        var suggestions by remember {
+            mutableStateOf(OsmPlaceSearchService.getInstantLocalSuggestions(""))
+        }
+
+        // Live auto-suggest as the user types in Nama Tempat / Tujuan Baru
+        LaunchedEffect(newDestName) {
+            val query = newDestName.trim()
+            suggestions = OsmPlaceSearchService.getInstantLocalSuggestions(query)
+            if (query.length >= 2) {
+                isSearchingPlaces = true
+                delay(260L)
+                val merged = OsmPlaceSearchService.searchPlacesWithNominatim(query)
+                suggestions = merged
+                isSearchingPlaces = false
+            } else {
+                isSearchingPlaces = false
+            }
+        }
+
+        // Prefetch OSM tiles around the currently pinned coordinate
+        val discretePickerZoom = smoothPickerZoom.toInt().coerceIn(10, 17)
+        LaunchedEffect(discretePickerZoom, (pickedLat * 100).toInt(), (pickedLng * 100).toInt()) {
+            val cx = floor(WebMercator.lonToTileX(pickedLng, discretePickerZoom)).toInt()
+            val cy = floor(WebMercator.latToTileY(pickedLat, discretePickerZoom)).toInt()
+            OsmTileStore.prefetchRegion(context, discretePickerZoom, cx, cy, radius = 2)
+        }
+
+        val textMeasurer = rememberTextMeasurer()
+        val dialogScrollState = rememberScrollState()
 
         AlertDialog(
             onDismissRequest = { showAddDestinationDialog = false },
@@ -719,61 +791,120 @@ fun TripPlanFormScreen(
                 )
             },
             text = {
-                Column {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(dialogScrollState)
+                ) {
                     Text(
-                        text = "Ketuk atau geser Peta Jalan Asli (OpenStreetMap) di bawah untuk menentukan titik koordinat tujuan baru:",
+                        text = "Ketik nama tujuan (misal: Rumah Sakit SLG / RS SLG) untuk melihat usulan otomatis, atau geser Peta Jalan Asli (OpenStreetMap) di bawah:",
                         style = MaterialTheme.typography.bodySmall,
                         color = SoftMochaText
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Interactive Mini OpenStreetMap Picker
+                    // Interactive OpenStreetMap Picker with Marked Destination Pin & Callout Banner
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(170.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.5.dp, AntiqueGold)
+                            .height(195.dp)
+                            .testTag("custom_destination_osm_picker_map"),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(
+                            width = 1.8.dp,
+                            color = if (isPinnedFromSuggestion) VintageGreenSuccess else AntiqueGold
+                        )
                     ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clipToBounds()
+                        ) {
                             Canvas(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .background(Color(0xFFF2E9D8))
                                     .pointerInput(Unit) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            val cTx = WebMercator.lonToTileX(pickedLng, pickerZoom)
-                                            val cTy = WebMercator.latToTileY(pickedLat, pickerZoom)
-                                            pickedLng = WebMercator.tileXToLon(
-                                                cTx - dragAmount.x / WebMercator.TILE_SIZE,
-                                                pickerZoom
-                                            )
-                                            pickedLat = WebMercator.tileYToLat(
-                                                cTy - dragAmount.y / WebMercator.TILE_SIZE,
-                                                pickerZoom
-                                            )
+                                        detectTransformGestures(panZoomLock = false) { centroid, pan, zoomChange, _ ->
+                                            val w = size.width.toFloat()
+                                            val h = size.height.toFloat()
+                                            val oldZ = pickerZoom
+                                            val oldZInt = oldZ.toInt().coerceIn(10, 17)
+                                            val oldScale = 2.0.pow((oldZ - oldZInt).toDouble())
+                                            val oldTileSize = WebMercator.TILE_SIZE * oldScale
+
+                                            val cTx = WebMercator.lonToTileX(pickedLng, oldZInt)
+                                            val cTy = WebMercator.latToTileY(pickedLat, oldZInt)
+
+                                            val pannedTx = cTx - (pan.x / oldTileSize)
+                                            val pannedTy = cTy - (pan.y / oldTileSize)
+
+                                            if (zoomChange != 1f && w > 0f && h > 0f) {
+                                                val dxPx = (centroid.x - w / 2f).toDouble()
+                                                val dyPx = (centroid.y - h / 2f).toDouble()
+                                                val focalTx = pannedTx + dxPx / oldTileSize
+                                                val focalTy = pannedTy + dyPx / oldTileSize
+                                                val focalLon = WebMercator.tileXToLon(focalTx, oldZInt)
+                                                val focalLat = WebMercator.tileYToLat(focalTy, oldZInt)
+
+                                                val zoomDelta = (ln(zoomChange.toDouble()) / ln(2.0)).toFloat()
+                                                val newZ = (oldZ + zoomDelta).coerceIn(10.5f, 17.5f)
+                                                pickerZoom = newZ
+
+                                                val newZInt = newZ.toInt().coerceIn(10, 17)
+                                                val newScale = 2.0.pow((newZ - newZInt).toDouble())
+                                                val newTileSize = WebMercator.TILE_SIZE * newScale
+
+                                                val focalNewTx = WebMercator.lonToTileX(focalLon, newZInt)
+                                                val focalNewTy = WebMercator.latToTileY(focalLat, newZInt)
+
+                                                pickedLng = WebMercator.tileXToLon(
+                                                    focalNewTx - dxPx / newTileSize,
+                                                    newZInt
+                                                ).coerceIn(-179.9, 179.9)
+                                                pickedLat = WebMercator.tileYToLat(
+                                                    focalNewTy - dyPx / newTileSize,
+                                                    newZInt
+                                                ).coerceIn(-80.0, 80.0)
+                                            } else if (pan != Offset.Zero) {
+                                                pickedLng = WebMercator.tileXToLon(pannedTx, oldZInt).coerceIn(-179.9, 179.9)
+                                                pickedLat = WebMercator.tileYToLat(pannedTy, oldZInt).coerceIn(-80.0, 80.0)
+                                            }
                                         }
                                     }
                                     .pointerInput(Unit) {
-                                        detectTapGestures { tapOffset ->
-                                            val w = size.width.toFloat()
-                                            val h = size.height.toFloat()
-                                            val cTx = WebMercator.lonToTileX(pickedLng, pickerZoom)
-                                            val cTy = WebMercator.latToTileY(pickedLat, pickerZoom)
-                                            val tappedTx = cTx + (tapOffset.x - w / 2f) / WebMercator.TILE_SIZE
-                                            val tappedTy = cTy + (tapOffset.y - h / 2f) / WebMercator.TILE_SIZE
-                                            pickedLng = WebMercator.tileXToLon(tappedTx, pickerZoom)
-                                            pickedLat = WebMercator.tileYToLat(tappedTy, pickerZoom)
-                                        }
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                pickerZoom = (pickerZoom + 1.0f).coerceAtMost(17.5f)
+                                            },
+                                            onTap = { tapOffset ->
+                                                val w = size.width.toFloat()
+                                                val h = size.height.toFloat()
+                                                val zInt = smoothPickerZoom.toInt().coerceIn(10, 17)
+                                                val scale = 2.0.pow((smoothPickerZoom - zInt).toDouble())
+                                                val effTileSize = WebMercator.TILE_SIZE * scale
+                                                val cTx = WebMercator.lonToTileX(pickedLng, zInt)
+                                                val cTy = WebMercator.latToTileY(pickedLat, zInt)
+                                                val tappedTx = cTx + (tapOffset.x - w / 2f) / effTileSize
+                                                val tappedTy = cTy + (tapOffset.y - h / 2f) / effTileSize
+                                                pickedLng = WebMercator.tileXToLon(tappedTx, zInt)
+                                                pickedLat = WebMercator.tileYToLat(tappedTy, zInt)
+                                                isPinnedFromSuggestion = true
+                                            }
+                                        )
                                     }
                             ) {
                                 val _rev = OsmTileStore.tileRevision.intValue
                                 val w = size.width
                                 val h = size.height
-                                val tileSizePx = WebMercator.TILE_SIZE.toFloat()
-                                val cTx = WebMercator.lonToTileX(pickedLng, pickerZoom)
-                                val cTy = WebMercator.latToTileY(pickedLat, pickerZoom)
+                                val zInt = smoothPickerZoom.toInt().coerceIn(10, 17)
+                                val scale = 2f.pow(smoothPickerZoom - zInt)
+                                val tileSizePx = WebMercator.TILE_SIZE.toFloat() * scale
+
+                                val renderLat = animatedPickedLat.toDouble()
+                                val renderLng = animatedPickedLng.toDouble()
+                                val cTx = WebMercator.lonToTileX(renderLng, zInt)
+                                val cTy = WebMercator.latToTileY(renderLat, zInt)
                                 val baseTx = floor(cTx).toInt()
                                 val baseTy = floor(cTy).toInt()
 
@@ -783,7 +914,7 @@ fun TripPlanFormScreen(
                                         val top = (h / 2f + (ty - cTy) * tileSizePx).roundToInt()
                                         val right = (w / 2f + (tx + 1 - cTx) * tileSizePx).roundToInt()
                                         val bottom = (h / 2f + (ty + 1 - cTy) * tileSizePx).roundToInt()
-                                        val tileSpec = OsmTileStore.getTileOrFallback(context, pickerZoom, tx, ty)
+                                        val tileSpec = OsmTileStore.getTileOrFallback(context, zInt, tx, ty)
                                         if (tileSpec != null) {
                                             drawImage(
                                                 image = tileSpec.imageBitmap,
@@ -793,29 +924,122 @@ fun TripPlanFormScreen(
                                                 dstSize = IntSize(
                                                     (right - left).coerceAtLeast(1),
                                                     (bottom - top).coerceAtLeast(1)
-                                                )
+                                                ),
+                                                filterQuality = FilterQuality.Medium
                                             )
                                         }
                                     }
                                 }
 
-                                // Draw Center Target Pin on Map
+                                // Draw Prominent Destination Pin Marker + Label Callout on Map
                                 val centerPt = Offset(w / 2f, h / 2f)
+                                val pinColor = if (isPinnedFromSuggestion) VintageGreenSuccess else EspressoBrown
+
+                                // Ground shadow & radar halo
                                 drawCircle(
-                                    color = EspressoBrown.copy(alpha = 0.25f),
-                                    radius = 24f,
+                                    color = pinColor.copy(alpha = 0.22f),
+                                    radius = 28f,
                                     center = centerPt
+                                )
+                                // Pin teardrop pointer
+                                val pinPath = Path().apply {
+                                    moveTo(centerPt.x, centerPt.y)
+                                    lineTo(centerPt.x - 13f, centerPt.y - 20f)
+                                    lineTo(centerPt.x + 13f, centerPt.y - 20f)
+                                    close()
+                                }
+                                drawPath(path = pinPath, color = pinColor)
+                                drawCircle(
+                                    color = pinColor,
+                                    radius = 15f,
+                                    center = Offset(centerPt.x, centerPt.y - 24f)
                                 )
                                 drawCircle(
                                     color = MetallicGold,
-                                    radius = 12f,
-                                    center = centerPt
+                                    radius = 10f,
+                                    center = Offset(centerPt.x, centerPt.y - 24f)
                                 )
                                 drawCircle(
-                                    color = EspressoBrown,
-                                    radius = 7f,
-                                    center = centerPt
+                                    color = DeepInkBrown,
+                                    radius = 4.5f,
+                                    center = Offset(centerPt.x, centerPt.y - 24f)
                                 )
+
+                                // Draw Destination Title Tag right above the pin when named
+                                val labelText = newDestName.trim().ifEmpty { "Titik Tujuan Baru" }
+                                val shortLabel = if (labelText.length > 28) labelText.take(26) + "…" else labelText
+                                val measuredLabel = textMeasurer.measure(
+                                    text = "📍 $shortLabel",
+                                    style = TextStyle(
+                                        color = SoftGoldHighlight,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                val tagW = measuredLabel.size.width + 16f
+                                val tagH = measuredLabel.size.height + 8f
+                                val tagTopLeft = Offset(
+                                    x = (centerPt.x - tagW / 2f).coerceIn(6f, (w - tagW - 6f).coerceAtLeast(6f)),
+                                    y = (centerPt.y - 46f - tagH).coerceAtLeast(6f)
+                                )
+                                drawRoundRect(
+                                    color = pinColor.copy(alpha = 0.95f),
+                                    topLeft = tagTopLeft,
+                                    size = Size(tagW, tagH),
+                                    cornerRadius = CornerRadius(8f, 8f)
+                                )
+                                drawRoundRect(
+                                    color = MetallicGold,
+                                    topLeft = tagTopLeft,
+                                    size = Size(tagW, tagH),
+                                    cornerRadius = CornerRadius(8f, 8f),
+                                    style = Stroke(width = 1.5f)
+                                )
+                                drawText(
+                                    textLayoutResult = measuredLabel,
+                                    topLeft = Offset(tagTopLeft.x + 8f, tagTopLeft.y + 4f)
+                                )
+                            }
+
+                            // Mini Zoom Controls on Right Side of Picker Map
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Surface(
+                                    onClick = { pickerZoom = (pickerZoom + 0.8f).coerceAtMost(17.5f) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = VintageCardCream.copy(alpha = 0.92f),
+                                    border = BorderStroke(1.dp, AntiqueGold),
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Perbesar",
+                                            tint = EspressoBrown,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    onClick = { pickerZoom = (pickerZoom - 0.8f).coerceAtLeast(10.5f) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = VintageCardCream.copy(alpha = 0.92f),
+                                    border = BorderStroke(1.dp, AntiqueGold),
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Remove,
+                                            contentDescription = "Perkecil",
+                                            tint = EspressoBrown,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             Surface(
@@ -823,18 +1047,20 @@ fun TripPlanFormScreen(
                                     .align(Alignment.BottomCenter)
                                     .padding(6.dp),
                                 shape = RoundedCornerShape(50),
-                                color = EspressoBrown.copy(alpha = 0.9f),
+                                color = if (isPinnedFromSuggestion) VintageGreenSuccess.copy(alpha = 0.94f) else EspressoBrown.copy(alpha = 0.9f),
                                 border = BorderStroke(1.dp, MetallicGold)
                             ) {
                                 Text(
                                     text = String.format(
                                         java.util.Locale.US,
-                                        "Titik OSM: %.4f, %.4f",
+                                        "%s: %.4f, %.4f",
+                                        if (isPinnedFromSuggestion) "Ditandai sebagai Tujuan" else "Titik OSM",
                                         pickedLat,
                                         pickedLng
                                     ),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = SoftGoldHighlight,
+                                    fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                                 )
                             }
@@ -842,23 +1068,183 @@ fun TripPlanFormScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    // Search / Place Name Input with Auto-Suggest Trigger
                     OutlinedTextField(
                         value = newDestName,
-                        onValueChange = { newDestName = it },
-                        label = { Text("Nama Tempat / Tujuan Baru") },
-                        placeholder = { Text("Contoh: Pabrik Cabang Sidoarjo") },
+                        onValueChange = {
+                            newDestName = it
+                            showSuggestionsDropdown = true
+                        },
+                        label = { Text("Nama Tempat / Tujuan Baru (Ketik untuk Usulan)") },
+                        placeholder = { Text("Contoh: Rumah Sakit SLG / RS SLG / Bandara") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = EspressoBrown
+                            )
+                        },
+                        trailingIcon = {
+                            if (isSearchingPlaces) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = EspressoBrown
+                                )
+                            } else if (newDestName.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        newDestName = ""
+                                        newDestAddress = ""
+                                        isPinnedFromSuggestion = false
+                                        showSuggestionsDropdown = true
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Bersihkan",
+                                        tint = SoftMochaText,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
                         singleLine = true,
                         colors = vintageTextFieldColors(),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("new_destination_name_input")
                     )
+
+                    // Live Auto-Suggest Dropdown List (Usulan Lokasi OpenStreetMap)
+                    AnimatedVisibility(visible = showSuggestionsDropdown && suggestions.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp)
+                                .testTag("osm_place_suggestions_list"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = VintageParchmentSurface),
+                            border = BorderStroke(1.2.dp, AntiqueGold)
+                        ) {
+                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (newDestName.isBlank()) {
+                                            "USULAN LOKASI POPULER (KETUK UNTUK TANDAI DI PETA):"
+                                        } else {
+                                            "USULAN SESUAI PENCARIAN (${suggestions.size} LOKASI):"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EspressoBrown,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Tutup",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SoftMochaText,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.clickable { showSuggestionsDropdown = false }
+                                    )
+                                }
+
+                                suggestions.take(5).forEachIndexed { idx, item ->
+                                    Surface(
+                                        onClick = {
+                                            newDestName = item.title
+                                            newDestAddress = item.addressSubtitle
+                                            pickedLat = item.latitude
+                                            pickedLng = item.longitude
+                                            pickerZoom = 15.6f
+                                            isPinnedFromSuggestion = true
+                                            showSuggestionsDropdown = false
+                                        },
+                                        color = Color.Transparent,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("osm_suggestion_item_$idx")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .clip(CircleShape)
+                                                    .background(EspressoBrown),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.LocationOn,
+                                                    contentDescription = null,
+                                                    tint = MetallicGold,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text(
+                                                        text = item.title,
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        color = DeepInkBrown,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = SoftGoldHighlight.copy(alpha = 0.65f),
+                                                        border = BorderStroke(0.8.dp, AntiqueGold)
+                                                    ) {
+                                                        Text(
+                                                            text = item.categoryBadge,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = EspressoBrown,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = item.addressSubtitle,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = SoftMochaText,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newDestAddress,
                         onValueChange = { newDestAddress = it },
-                        label = { Text("Alamat / Patokan Area (Opsional)") },
-                        placeholder = { Text("Contoh: Jl. Raya Waru KM 15") },
+                        label = { Text("Alamat / Patokan Area (Otomatis / Opsional)") },
+                        placeholder = { Text("Contoh: Jl. Galuh Candrakirana, Ngasem, Kediri") },
                         singleLine = true,
                         colors = vintageTextFieldColors(),
                         modifier = Modifier
