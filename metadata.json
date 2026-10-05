@@ -1,0 +1,6 @@
+{
+  "name": "Bawa Mobil SR",
+  "description": "Aplikasi perizinan, rencana perjalanan, dan pemantauan peta real-time armada mobil (Gran Max, N-Max, Avanza Veloz) dengan sistem persetujuan keamanan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

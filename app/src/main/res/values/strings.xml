@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">Bawa Mobil SR</string>
+    <string name="app_subtitle">Sistem Izin &amp; Pemantauan Armada Terpadu</string>
+    <string name="role_user_title">Pengguna &amp; Pemantau</string>
+    <string name="role_user_desc">Ajukan rencana bawa mobil &amp; pantau posisi armada secara real-time</string>
+    <string name="role_security_title">Keamanan (Security)</string>
+    <string name="role_security_desc">Verifikasi izin keluar armada, setujui/tolak &amp; pantau perjalanan</string>
+    <string name="login_name_label">Nama Lengkap Pembawa / Pemantau</string>
+    <string name="login_division_label">Bagian / Divisi</string>
+    <string name="login_security_officer_label">Nama Petugas Keamanan</string>
+    <string name="login_security_pin_label">Kode Akses Pos Keamanan</string>
+    <string name="btn_login_user">Masuk sebagai Pengguna &amp; Pemantau</string>
+    <string name="btn_login_security">Masuk ke Pos Keamanan</string>
+    <string name="btn_open_trip_form">Formulir Isi Rencana Bawa Mobil</string>
+    <string name="tab_fleet_plan">Rencana &amp; Armada</string>
+    <string name="tab_live_map">Peta Real-Time</string>
+    <string name="tab_history">Riwayat</string>
+    <string name="tab_sec_approval">Persetujuan Izin</string>
+    <string name="tab_sec_map">Pantau Peta</string>
+    <string name="tab_sec_log">Log Pos</string>
+    <string name="status_pending">Menunggu Persetujuan Keamanan</string>
+    <string name="status_in_transit">Dalam Perjalanan</string>
+    <string name="status_completed">Selesai Kembali</string>
+    <string name="status_rejected">Ditolak Keamanan</string>
+    <string name="btn_approve">Setujui Jalan</string>
+    <string name="btn_reject">Tolak Izin</string>
+    <string name="btn_complete_trip">Selesai Perjalanan (Kembali ke Pos)</string>
+    <string name="btn_switch_role">Ganti Peran Cepat</string>
+    <string name="btn_logout">Keluar</string>
+</resources>
