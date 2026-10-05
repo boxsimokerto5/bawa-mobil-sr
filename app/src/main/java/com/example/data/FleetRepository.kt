@@ -11,6 +11,7 @@ class FleetRepository(private val dao: FleetDao) {
     val vehicles: Flow<List<VehicleEntity>> = dao.getAllVehicles()
     val destinations: Flow<List<DestinationEntity>> = dao.getAllDestinations()
     val tripRequests: Flow<List<TripRequestEntity>> = dao.getAllTripRequests()
+    val userAccounts: Flow<List<UserAccountEntity>> = dao.getAllUserAccounts()
 
     companion object {
         // Pos Utama Keamanan SR (Base Camp Coordinates)
@@ -180,6 +181,220 @@ class FleetRepository(private val dao: FleetDao) {
             )
         )
         sampleTrips.forEach { dao.insertTripRequest(it) }
+        ensureUserAccountsSeedData()
+    }
+
+    suspend fun ensureUserAccountsSeedData() {
+        if (dao.getUserAccountCount() > 0) return
+        val now = System.currentTimeMillis()
+        val sampleAccounts = listOf(
+            UserAccountEntity(
+                email = "ustadz.fauzi@sekolahsr.sch.id",
+                password = "Password123",
+                initialAccountCategory = "PENGGUNA",
+                verificationCode = "739201",
+                isEmailVerified = true,
+                fullName = "Ustadz Ahmad Fauzi, S.Pd.",
+                address = "Jl. Ketintang Baru III No. 24, Surabaya",
+                phoneNumber = "081234567801",
+                taskRole = SchoolTaskType.WALI_ASRAMA.label,
+                selfPhotoUri = "preset://self_wali_asrama",
+                ktpPhotoUri = "preset://ktp_verified_357801",
+                isProfileSubmitted = true,
+                accountStatus = AccountRegistrationStatus.PENDING_ADMIN_APPROVAL.name,
+                adminNotes = "",
+                approvedByAdmin = "",
+                createdAt = now - 1800_000L,
+                updatedAt = now - 600_000L
+            ),
+            UserAccountEntity(
+                email = "bambang.sec@sekolahsr.sch.id",
+                password = "Password123",
+                initialAccountCategory = "KEAMANAN",
+                verificationCode = "518402",
+                isEmailVerified = true,
+                fullName = "Pak Bambang Sudibyo",
+                address = "Jl. Wonokromo Tengah No. 11, Surabaya",
+                phoneNumber = "081355779902",
+                taskRole = SchoolTaskType.KEAMANAN.label,
+                selfPhotoUri = "preset://self_keamanan",
+                ktpPhotoUri = "preset://ktp_verified_357802",
+                isProfileSubmitted = true,
+                accountStatus = AccountRegistrationStatus.PENDING_ADMIN_APPROVAL.name,
+                adminNotes = "",
+                approvedByAdmin = "",
+                createdAt = now - 2400_000L,
+                updatedAt = now - 900_000L
+            ),
+            UserAccountEntity(
+                email = "andi.guru@sekolahsr.sch.id",
+                password = "Password123",
+                initialAccountCategory = "PENGGUNA",
+                verificationCode = "112233",
+                isEmailVerified = true,
+                fullName = "Bapak Andi Pratama, M.Pd.",
+                address = "Jl. Raya Darmo Permai II No. 18, Surabaya",
+                phoneNumber = "081299887711",
+                taskRole = SchoolTaskType.GURU.label,
+                selfPhotoUri = "preset://self_guru",
+                ktpPhotoUri = "preset://ktp_verified_357803",
+                isProfileSubmitted = true,
+                accountStatus = AccountRegistrationStatus.APPROVED.name,
+                adminNotes = "Identitas KTP & Surat Tugas Guru sesuai. Disetujui menggunakan armada sekolah.",
+                approvedByAdmin = "Admin Sekolah (eccko1101)",
+                createdAt = now - 86_400_000L,
+                updatedAt = now - 72_000_000L
+            ),
+            UserAccountEntity(
+                email = "suryo.pos@sekolahsr.sch.id",
+                password = "Password123",
+                initialAccountCategory = "KEAMANAN",
+                verificationCode = "445566",
+                isEmailVerified = true,
+                fullName = "Komandan Pos Suryo",
+                address = "Asrama Kompleks Sekolah SR Blok A-1",
+                phoneNumber = "081344556677",
+                taskRole = SchoolTaskType.KEAMANAN.label,
+                selfPhotoUri = "preset://self_komandan",
+                ktpPhotoUri = "preset://ktp_verified_357804",
+                isProfileSubmitted = true,
+                accountStatus = AccountRegistrationStatus.APPROVED.name,
+                adminNotes = "Kepala Regu Keamanan Sekolah. Akses verifikasi keluar-masuk armada aktif.",
+                approvedByAdmin = "Admin Sekolah (eccko1101)",
+                createdAt = now - 90_000_000L,
+                updatedAt = now - 80_000_000L
+            )
+        )
+        dao.insertUserAccounts(sampleAccounts)
+    }
+
+    suspend fun getAccountByEmail(email: String): UserAccountEntity? {
+        return dao.getUserAccountByEmail(email.trim())
+    }
+
+    suspend fun getAccountById(accountId: Int): UserAccountEntity? {
+        return dao.getUserAccountById(accountId)
+    }
+
+    suspend fun registerNewAccount(
+        email: String,
+        password: String,
+        initialCategory: String
+    ): Result<UserAccountEntity> {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
+            return Result.failure(IllegalArgumentException("Format email tidak valid."))
+        }
+        if (password.length < 4) {
+            return Result.failure(IllegalArgumentException("Kata sandi minimal 4 karakter."))
+        }
+        val existing = dao.getUserAccountByEmail(cleanEmail)
+        if (existing != null) {
+            return Result.failure(
+                IllegalStateException("Email '$cleanEmail' sudah terdaftar. Silakan langsung login.")
+            )
+        }
+
+        val generatedCode = ((100000..999999).random()).toString()
+        val now = System.currentTimeMillis()
+        val newAccount = UserAccountEntity(
+            email = cleanEmail,
+            password = password,
+            initialAccountCategory = initialCategory,
+            verificationCode = generatedCode,
+            isEmailVerified = false,
+            isProfileSubmitted = false,
+            accountStatus = AccountRegistrationStatus.PENDING_EMAIL_VERIFICATION.name,
+            createdAt = now,
+            updatedAt = now
+        )
+        val id = dao.insertUserAccount(newAccount).toInt()
+        return Result.success(newAccount.copy(id = id))
+    }
+
+    suspend fun verifyAccountEmail(accountId: Int): UserAccountEntity? {
+        val account = dao.getUserAccountById(accountId) ?: return null
+        val nextStatus = if (account.isProfileSubmitted) {
+            account.accountStatus
+        } else {
+            AccountRegistrationStatus.PENDING_PROFILE_COMPLETION.name
+        }
+        val updated = account.copy(
+            isEmailVerified = true,
+            accountStatus = nextStatus,
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.updateUserAccount(updated)
+        return updated
+    }
+
+    suspend fun regenerateVerificationCode(accountId: Int): UserAccountEntity? {
+        val account = dao.getUserAccountById(accountId) ?: return null
+        val newCode = ((100000..999999).random()).toString()
+        val updated = account.copy(
+            verificationCode = newCode,
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.updateUserAccount(updated)
+        return updated
+    }
+
+    suspend fun submitUserProfileForm(
+        accountId: Int,
+        fullName: String,
+        address: String,
+        phoneNumber: String,
+        taskRole: String,
+        selfPhotoUri: String,
+        ktpPhotoUri: String
+    ): UserAccountEntity? {
+        val account = dao.getUserAccountById(accountId) ?: return null
+        val updated = account.copy(
+            fullName = fullName.trim(),
+            address = address.trim(),
+            phoneNumber = phoneNumber.trim(),
+            taskRole = taskRole.trim(),
+            selfPhotoUri = selfPhotoUri.trim(),
+            ktpPhotoUri = ktpPhotoUri.trim(),
+            isProfileSubmitted = true,
+            accountStatus = AccountRegistrationStatus.PENDING_ADMIN_APPROVAL.name,
+            adminNotes = "",
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.updateUserAccount(updated)
+        return updated
+    }
+
+    suspend fun approveUserAccountByAdmin(
+        accountId: Int,
+        adminUsername: String,
+        notes: String
+    ): UserAccountEntity? {
+        val account = dao.getUserAccountById(accountId) ?: return null
+        val updated = account.copy(
+            accountStatus = AccountRegistrationStatus.APPROVED.name,
+            approvedByAdmin = adminUsername.ifBlank { "Admin Sekolah (eccko1101)" },
+            adminNotes = notes.ifBlank { "Berkas Foto Diri, KTP, dan Tugas telah diverifikasi oleh Admin Sekolah." },
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.updateUserAccount(updated)
+        return updated
+    }
+
+    suspend fun rejectUserAccountByAdmin(
+        accountId: Int,
+        adminUsername: String,
+        reason: String
+    ): UserAccountEntity? {
+        val account = dao.getUserAccountById(accountId) ?: return null
+        val updated = account.copy(
+            accountStatus = AccountRegistrationStatus.REJECTED.name,
+            approvedByAdmin = adminUsername.ifBlank { "Admin Sekolah (eccko1101)" },
+            adminNotes = reason.ifBlank { "Berkas KTP atau biodata belum sesuai, silakan perbarui formulir." },
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.updateUserAccount(updated)
+        return updated
     }
 
     suspend fun addCustomDestination(

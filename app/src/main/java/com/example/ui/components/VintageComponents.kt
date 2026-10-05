@@ -170,7 +170,12 @@ fun VintageTopBar(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (currentRole == UserRole.USER_MONITOR) "Ke Keamanan" else "Ke Pengguna",
+                                text = when (currentRole) {
+                                    UserRole.USER_MONITOR -> "Ke Keamanan"
+                                    UserRole.SECURITY -> "Ke Admin Sekolah"
+                                    UserRole.SCHOOL_ADMIN -> "Ke Pengguna"
+                                    else -> "Ganti Peran"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = SoftGoldHighlight,
                                 fontWeight = FontWeight.Bold

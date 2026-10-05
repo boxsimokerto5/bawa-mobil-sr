@@ -44,4 +44,26 @@ interface FleetDao {
 
     @Query("DELETE FROM trip_requests WHERE id = :tripId")
     suspend fun deleteTripRequest(tripId: Int)
+
+    // User Accounts & School Admin Registration Flow
+    @Query("SELECT * FROM user_accounts ORDER BY updatedAt DESC")
+    fun getAllUserAccounts(): Flow<List<UserAccountEntity>>
+
+    @Query("SELECT COUNT(*) FROM user_accounts")
+    suspend fun getUserAccountCount(): Int
+
+    @Query("SELECT * FROM user_accounts WHERE LOWER(email) = LOWER(:email) LIMIT 1")
+    suspend fun getUserAccountByEmail(email: String): UserAccountEntity?
+
+    @Query("SELECT * FROM user_accounts WHERE id = :accountId LIMIT 1")
+    suspend fun getUserAccountById(accountId: Int): UserAccountEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUserAccount(account: UserAccountEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUserAccounts(accounts: List<UserAccountEntity>)
+
+    @Update
+    suspend fun updateUserAccount(account: UserAccountEntity)
 }

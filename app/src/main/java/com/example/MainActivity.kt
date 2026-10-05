@@ -24,10 +24,15 @@ import com.example.data.FleetRepository
 import com.example.data.UserRole
 import com.example.ui.FleetDashboardUiState
 import com.example.ui.FleetViewModel
+import com.example.ui.screens.CompleteProfileFormScreen
+import com.example.ui.screens.EmailVerificationScreen
 import com.example.ui.screens.LoginScreen
+import com.example.ui.screens.RegisterAccountScreen
+import com.example.ui.screens.SchoolAdminDashboardScreen
 import com.example.ui.screens.SecurityDashboardScreen
 import com.example.ui.screens.TripPlanFormScreen
 import com.example.ui.screens.UserMonitorDashboardScreen
+import com.example.ui.screens.WaitingAdminApprovalScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -89,12 +94,109 @@ fun BawaMobilSrApp(
                         defaultSecurityOfficer = session.loggedInSecurityOfficer,
                         activeTripsCount = uiState.activeTrips.size,
                         pendingTripsCount = uiState.pendingTrips.size,
+                        pendingAdminAccountsCount = uiState.pendingApprovalAccounts.size,
+                        prefilledEmail = session.loggedInUserEmail ?: "",
+                        isAuthLoading = session.isAuthLoading,
+                        authStatusMessage = session.authStatusMessage,
+                        onOpenRegisterAccount = {
+                            viewModel.openRegisterAccountScreen()
+                        },
+                        onLoginWithRegisteredEmail = { email, password ->
+                            viewModel.loginWithRegisteredAccount(email, password)
+                        },
                         onLoginAsUserMonitor = { name, division ->
                             viewModel.loginAsUserMonitor(name, division)
                         },
+                        onGoogleSignInDriver = { ctx, division ->
+                            viewModel.signInDriverWithGoogle(ctx, division)
+                        },
+                        onFirebaseEmailSignInDriver = { ctx, email, pass, division ->
+                            viewModel.signInDriverWithFirebaseEmail(ctx, email, pass, division)
+                        },
                         onLoginAsSecurity = { officer ->
                             viewModel.loginAsSecurity(officer)
+                        },
+                        onLoginAsSchoolAdmin = { username, password ->
+                            viewModel.loginAsSchoolAdmin(username, password)
                         }
+                    )
+                }
+
+                role == UserRole.REGISTER_ACCOUNT -> {
+                    RegisterAccountScreen(
+                        authStatusMessage = session.authStatusMessage,
+                        isAuthLoading = session.isAuthLoading,
+                        onRegisterSubmit = { ctx, email, pass, category ->
+                            viewModel.registerNewAccount(ctx, email, pass, category)
+                        },
+                        onBackToLogin = { viewModel.logout() }
+                    )
+                }
+
+                role == UserRole.VERIFY_EMAIL -> {
+                    EmailVerificationScreen(
+                        account = uiState.activeAccount,
+                        fallbackEmail = session.loggedInUserEmail ?: "",
+                        authStatusMessage = session.authStatusMessage,
+                        onVerifyCode = { ctx, accId, code, simulateLink ->
+                            viewModel.verifyEmailWithCodeOrLink(ctx, accId, code, simulateLink)
+                        },
+                        onResendCode = { ctx, accId ->
+                            viewModel.resendVerificationEmail(ctx, accId)
+                        },
+                        onBackToLogin = { viewModel.logout() }
+                    )
+                }
+
+                role == UserRole.COMPLETE_PROFILE_FORM -> {
+                    CompleteProfileFormScreen(
+                        account = uiState.activeAccount,
+                        onSubmitProfileForm = { accId, fullName, address, phone, task, selfUri, ktpUri ->
+                            viewModel.submitCompleteProfileForm(
+                                accountId = accId,
+                                fullName = fullName,
+                                address = address,
+                                phoneNumber = phone,
+                                taskRole = task,
+                                selfPhotoUri = selfUri,
+                                ktpPhotoUri = ktpUri
+                            )
+                        },
+                        onLogout = { viewModel.logout() }
+                    )
+                }
+
+                role == UserRole.WAITING_ADMIN_APPROVAL -> {
+                    WaitingAdminApprovalScreen(
+                        account = uiState.activeAccount,
+                        onEditFormAgain = { viewModel.reopenProfileFormForEdit() },
+                        onJumpToSchoolAdminLogin = { viewModel.logout() },
+                        onLogout = { viewModel.logout() }
+                    )
+                }
+
+                role == UserRole.SCHOOL_ADMIN -> {
+                    SchoolAdminDashboardScreen(
+                        uiState = uiState,
+                        onApproveAccount = { accId, name, notes ->
+                            viewModel.approveUserAccountByAdmin(accId, name, notes)
+                        },
+                        onRejectAccount = { accId, name, reason ->
+                            viewModel.rejectUserAccountByAdmin(accId, name, reason)
+                        },
+                        onCompleteTrip = { trip ->
+                            viewModel.completeActiveTrip(trip.id, trip.vehicleName)
+                        },
+                        onSelectTripOnMap = { tripId -> viewModel.focusTripOnMap(tripId) },
+                        onOpenMapPopup = { tripId -> viewModel.openMapPopup(tripId) },
+                        onCloseMapPopup = { viewModel.closeMapPopup() },
+                        onAdvanceManualStep = { viewModel.advanceSingleStepManual() },
+                        onLocationPermissionResult = { ctx, granted ->
+                            viewModel.onLocationPermissionResult(ctx, granted)
+                        },
+                        onQuickSwitchRole = { viewModel.quickSwitchRole() },
+                        onLogout = { viewModel.logout() },
+                        onDismissBanner = { viewModel.clearBannerMessage() }
                     )
                 }
 

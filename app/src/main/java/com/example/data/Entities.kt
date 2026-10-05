@@ -12,8 +12,71 @@ enum class TripStatus {
 
 enum class UserRole {
     NONE,
+    REGISTER_ACCOUNT,
+    VERIFY_EMAIL,
+    COMPLETE_PROFILE_FORM,
+    WAITING_ADMIN_APPROVAL,
     USER_MONITOR,
-    SECURITY
+    SECURITY,
+    SCHOOL_ADMIN
+}
+
+enum class AccountRegistrationStatus {
+    PENDING_EMAIL_VERIFICATION,
+    PENDING_PROFILE_COMPLETION,
+    PENDING_ADMIN_APPROVAL,
+    APPROVED,
+    REJECTED
+}
+
+enum class SchoolTaskType(val label: String, val mapsToSecurityRole: Boolean) {
+    KEAMANAN("Keamanan", true),
+    DAPUR("Dapur", false),
+    KEBERSIHAN("Kebersihan", false),
+    WALIASUH("Waliasuh", false),
+    WALI_ASRAMA("Wali Asrama", false),
+    GURU("Guru", false),
+    TU_TENDIK("TU Tendik", false);
+
+    companion object {
+        fun fromLabel(label: String): SchoolTaskType {
+            return entries.firstOrNull { it.label.equals(label.trim(), ignoreCase = true) }
+                ?: GURU
+        }
+    }
+}
+
+@Entity(tableName = "user_accounts")
+data class UserAccountEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val email: String,
+    val password: String,
+    val initialAccountCategory: String, // "PENGGUNA" or "KEAMANAN"
+    val verificationCode: String = "482910",
+    val isEmailVerified: Boolean = false,
+    val fullName: String = "",
+    val address: String = "",
+    val phoneNumber: String = "",
+    val taskRole: String = "", // Keamanan, Dapur, Kebersihan, Waliasuh, Wali Asrama, Guru, TU Tendik
+    val selfPhotoUri: String = "",
+    val ktpPhotoUri: String = "",
+    val isProfileSubmitted: Boolean = false,
+    val accountStatus: String = AccountRegistrationStatus.PENDING_EMAIL_VERIFICATION.name,
+    val adminNotes: String = "",
+    val approvedByAdmin: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    val statusEnum: AccountRegistrationStatus
+        get() = try {
+            AccountRegistrationStatus.valueOf(accountStatus)
+        } catch (_: Exception) {
+            AccountRegistrationStatus.PENDING_EMAIL_VERIFICATION
+        }
+
+    val isSecurityTask: Boolean
+        get() = taskRole.equals("Keamanan", ignoreCase = true) ||
+            (taskRole.isBlank() && initialAccountCategory.equals("KEAMANAN", ignoreCase = true))
 }
 
 @Entity(tableName = "vehicles")

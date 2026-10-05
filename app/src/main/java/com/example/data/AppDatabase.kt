@@ -9,9 +9,10 @@ import androidx.room.RoomDatabase
     entities = [
         VehicleEntity::class,
         DestinationEntity::class,
-        TripRequestEntity::class
+        TripRequestEntity::class,
+        UserAccountEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
