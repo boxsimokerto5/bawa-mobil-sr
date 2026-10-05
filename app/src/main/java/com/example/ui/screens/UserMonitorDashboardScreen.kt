@@ -122,6 +122,8 @@ fun UserMonitorDashboardScreen(
             allDestinations = uiState.destinations,
             focusedTripId = uiState.session.focusedMapTripId,
             isGpsEnabled = uiState.session.isGpsPermissionGranted,
+            deviceLat = uiState.session.lastDeviceLat,
+            deviceLng = uiState.session.lastDeviceLng,
             onSelectTrip = onSelectTripOnMap,
             onCompleteTrip = { trip ->
                 onCompleteTrip(trip)
@@ -259,6 +261,8 @@ fun UserMonitorDashboardScreen(
                     allDestinations = uiState.destinations,
                     focusedTripId = uiState.session.focusedMapTripId,
                     isGpsEnabled = uiState.session.isGpsPermissionGranted,
+                    deviceLat = uiState.session.lastDeviceLat,
+                    deviceLng = uiState.session.lastDeviceLng,
                     onSelectTrip = onSelectTripOnMap,
                     onCompleteTrip = onCompleteTrip,
                     onAdvanceManualStep = onAdvanceManualStep,

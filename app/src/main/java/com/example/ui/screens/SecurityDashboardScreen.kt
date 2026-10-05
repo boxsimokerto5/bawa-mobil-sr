@@ -117,6 +117,8 @@ fun SecurityDashboardScreen(
             allDestinations = uiState.destinations,
             focusedTripId = uiState.session.focusedMapTripId,
             isGpsEnabled = uiState.session.isGpsPermissionGranted,
+            deviceLat = uiState.session.lastDeviceLat,
+            deviceLng = uiState.session.lastDeviceLng,
             onSelectTrip = onSelectTripOnMap,
             onCompleteTrip = { trip ->
                 onCompleteTrip(trip)
@@ -267,6 +269,8 @@ fun SecurityDashboardScreen(
                     allDestinations = uiState.destinations,
                     focusedTripId = uiState.session.focusedMapTripId,
                     isGpsEnabled = uiState.session.isGpsPermissionGranted,
+                    deviceLat = uiState.session.lastDeviceLat,
+                    deviceLng = uiState.session.lastDeviceLng,
                     onSelectTrip = onSelectTripOnMap,
                     onCompleteTrip = onCompleteTrip,
                     onAdvanceManualStep = onAdvanceManualStep,

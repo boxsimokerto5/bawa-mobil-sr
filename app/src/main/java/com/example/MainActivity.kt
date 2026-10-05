@@ -208,6 +208,8 @@ fun BawaMobilSrApp(
                         preselectedVehicleId = session.preselectedVehicleId,
                         defaultDriverName = session.loggedInUserName,
                         defaultDriverDivision = session.loggedInUserDivision,
+                        deviceLat = session.lastDeviceLat,
+                        deviceLng = session.lastDeviceLng,
                         onAddCustomDestination = { name, addr, lat, lng, onCreated ->
                             viewModel.addCustomDestination(name, addr, lat, lng, onCreated)
                         },

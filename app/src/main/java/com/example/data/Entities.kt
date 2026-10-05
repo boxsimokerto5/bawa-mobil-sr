@@ -119,14 +119,14 @@ data class TripRequestEntity(
     val securityNotes: String = "",
     val approvedByOfficer: String = "",
     val completedByOfficer: String = "",
-    val currentLat: Double = -7.2575,
-    val currentLng: Double = 112.7521,
+    val currentLat: Double = -7.872575,
+    val currentLng: Double = 112.169353,
     val currentSpeedKmh: Int = 0,
     val progressPercent: Float = 0f,
     val currentTargetIndex: Int = 0,
     val isGpsRealDevice: Boolean = false,
     // Semicolon-separated recorded trail points from SR departure -> destinations -> back to SR
-    val routeTrailCoordsText: String = "-7.2575,112.7521",
+    val routeTrailCoordsText: String = "-7.872575,112.169353",
     val totalDistanceTraveledKm: Double = 0.0,
     val endOdometerKm: Int = 0,
     val isArrivedBackAtSrGate: Boolean = false,
@@ -169,9 +169,9 @@ data class TripRequestEntity(
         get() {
             val stops = parsedDestinations
             return if (stops.isEmpty()) {
-                "Pos Utama SR ➔ Pos Utama SR"
+                "Sekolah Rakyat (Pos SR) ➔ Sekolah Rakyat (Pos SR)"
             } else {
-                "Pos Utama SR ➔ ${stops.joinToString(" ➔ ")} ➔ Kembali ke Pos Utama SR"
+                "Sekolah Rakyat (Pos SR) ➔ ${stops.joinToString(" ➔ ")} ➔ Kembali ke Sekolah Rakyat (Pos SR)"
             }
         }
 

@@ -2,7 +2,9 @@ package com.example.ui.components
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -142,6 +144,8 @@ fun VintageNearFullScreenMapPopup(
     allDestinations: List<DestinationEntity>,
     focusedTripId: Int?,
     isGpsEnabled: Boolean,
+    deviceLat: Double? = null,
+    deviceLng: Double? = null,
     onSelectTrip: (Int?) -> Unit,
     onCompleteTrip: (TripRequestEntity) -> Unit,
     onAdvanceManualStep: () -> Unit,
@@ -249,6 +253,8 @@ fun VintageNearFullScreenMapPopup(
                         allDestinations = allDestinations,
                         focusedTripId = focusedTripId,
                         isGpsEnabled = isGpsEnabled,
+                        deviceLat = deviceLat,
+                        deviceLng = deviceLng,
                         onSelectTrip = onSelectTrip,
                         onCompleteTrip = onCompleteTrip,
                         onAdvanceManualStep = onAdvanceManualStep,
@@ -270,6 +276,8 @@ fun VintageRealTimeMapPanel(
     allDestinations: List<DestinationEntity>,
     focusedTripId: Int?,
     isGpsEnabled: Boolean,
+    deviceLat: Double? = null,
+    deviceLng: Double? = null,
     onSelectTrip: (Int?) -> Unit,
     onCompleteTrip: (TripRequestEntity) -> Unit,
     onAdvanceManualStep: () -> Unit,
@@ -286,6 +294,32 @@ fun VintageRealTimeMapPanel(
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         onLocationPermissionResult(context, granted)
+    }
+
+    // Automatically check or request real device GPS permission as soon as the map opens
+    LaunchedEffect(Unit) {
+        val hasFine = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasFine || hasCoarse) {
+            onLocationPermissionResult(context, true)
+        } else {
+            try {
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            } catch (_: Exception) {
+            }
+        }
     }
 
     // Include completed trips with route trails if focused from Rekap Perjalanan
@@ -305,7 +339,7 @@ fun VintageRealTimeMapPanel(
     }
 
     // Continuous floating-point zoom (10.5f .. 17.5f) for butter-smooth pinch & button zoom
-    var targetZoom by remember { mutableFloatStateOf(if (isInsidePopup) 14.0f else 13.5f) }
+    var targetZoom by remember { mutableFloatStateOf(if (isInsidePopup) 14.5f else 14.0f) }
     val smoothZoom by animateFloatAsState(
         targetValue = targetZoom,
         animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
@@ -313,10 +347,14 @@ fun VintageRealTimeMapPanel(
     )
 
     var centerLat by remember {
-        mutableDoubleStateOf(selectedTrip?.currentLat ?: FleetRepository.BASE_LAT)
+        mutableDoubleStateOf(
+            deviceLat ?: selectedTrip?.currentLat ?: FleetRepository.BASE_LAT
+        )
     }
     var centerLng by remember {
-        mutableDoubleStateOf(selectedTrip?.currentLng ?: FleetRepository.BASE_LNG)
+        mutableDoubleStateOf(
+            deviceLng ?: selectedTrip?.currentLng ?: FleetRepository.BASE_LNG
+        )
     }
     var followSelectedVehicle by remember { mutableStateOf(true) }
     var vintageTintOverlay by remember { mutableStateOf(true) }
@@ -327,7 +365,7 @@ fun VintageRealTimeMapPanel(
     val animatedCenterLat by animateFloatAsState(
         targetValue = centerLat.toFloat(),
         animationSpec = tween(
-            durationMillis = if (followSelectedVehicle) 1800 else 45,
+            durationMillis = if (followSelectedVehicle) 950 else 45,
             easing = LinearEasing
         ),
         label = "camera_lat"
@@ -335,16 +373,28 @@ fun VintageRealTimeMapPanel(
     val animatedCenterLng by animateFloatAsState(
         targetValue = centerLng.toFloat(),
         animationSpec = tween(
-            durationMillis = if (followSelectedVehicle) 1800 else 45,
+            durationMillis = if (followSelectedVehicle) 950 else 45,
             easing = LinearEasing
         ),
         label = "camera_lng"
     )
 
-    LaunchedEffect(selectedTrip?.id, selectedTrip?.currentLat, selectedTrip?.currentLng, followSelectedVehicle) {
-        if (followSelectedVehicle && selectedTrip != null) {
-            centerLat = selectedTrip.currentLat
-            centerLng = selectedTrip.currentLng
+    LaunchedEffect(
+        selectedTrip?.id,
+        selectedTrip?.currentLat,
+        selectedTrip?.currentLng,
+        deviceLat,
+        deviceLng,
+        followSelectedVehicle
+    ) {
+        if (followSelectedVehicle) {
+            if (deviceLat != null && deviceLng != null) {
+                centerLat = deviceLat
+                centerLng = deviceLng
+            } else if (selectedTrip != null) {
+                centerLat = selectedTrip.currentLat
+                centerLng = selectedTrip.currentLng
+            }
         }
     }
 
@@ -352,7 +402,23 @@ fun VintageRealTimeMapPanel(
     LaunchedEffect(discreteZoom, (centerLat * 100).toInt(), (centerLng * 100).toInt()) {
         val cx = floor(WebMercator.lonToTileX(centerLng, discreteZoom)).toInt()
         val cy = floor(WebMercator.latToTileY(centerLat, discreteZoom)).toInt()
-        OsmTileStore.prefetchRegion(context, discreteZoom, cx, cy, radius = 2)
+        OsmTileStore.prefetchRegion(context, discreteZoom, cx, cy, radius = 2, includeAdjacentZooms = true)
+    }
+
+    // Proactively pre-cache tiles along the selected trip's route corridor (including Sekolah Rakyat base camp)
+    LaunchedEffect(selectedTrip?.id, selectedTrip?.destinationCoordsText) {
+        val corridorWaypoints = buildList {
+            add(Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG))
+            if (selectedTrip != null) {
+                if (deviceLat != null && deviceLng != null) {
+                    add(Pair(deviceLat, deviceLng))
+                } else {
+                    add(Pair(selectedTrip.currentLat, selectedTrip.currentLng))
+                }
+                addAll(selectedTrip.parsedCoordinates)
+            }
+        }
+        OsmTileStore.prefetchRouteCorridor(context, corridorWaypoints)
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "osm_radar_pulse")
@@ -618,11 +684,17 @@ fun VintageRealTimeMapPanel(
                         val coords = trip.parsedCoordinates
                         val names = trip.parsedDestinations
 
-                        // 3A. Planned Round-Trip Loop (Pos Utama SR -> Tujuan 1..N -> Kembali ke Pos Utama SR)
+                        // 3A. Planned Round-Trip Loop (Titik Awal GPS / Pos SR -> Tujuan 1..N -> Kembali)
+                        val startOrigin = if (trip.isGpsRealDevice) {
+                            trip.parsedTrailCoordinates.firstOrNull()
+                                ?: Pair(deviceLat ?: trip.currentLat, deviceLng ?: trip.currentLng)
+                        } else {
+                            Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG)
+                        }
                         val plannedWaypoints = buildList {
-                            add(Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG))
+                            add(startOrigin)
                             addAll(coords)
-                            add(Pair(FleetRepository.BASE_LAT, FleetRepository.BASE_LNG))
+                            add(startOrigin)
                         }
 
                         for (i in 0 until plannedWaypoints.size - 1) {
@@ -810,50 +882,76 @@ fun VintageRealTimeMapPanel(
                         }
                     }
 
-                    // 4. Base Camp Marker (Pos Utama Keamanan SR)
-                    if (basePos.x in -120f..(w + 120f) && basePos.y in -120f..(h + 120f)) {
+                    // 4. Base Camp Marker: Lokasi Sekolah Rakyat / Pos Utama Keamanan SR (-7.872575, 112.169353)
+                    if (basePos.x in -150f..(w + 150f) && basePos.y in -150f..(h + 150f)) {
+                        drawCircle(
+                            color = MetallicGold.copy(alpha = 0.28f),
+                            radius = 24f,
+                            center = basePos
+                        )
                         drawCircle(
                             color = EspressoBrown,
-                            radius = 16f,
+                            radius = 17f,
                             center = basePos
                         )
                         drawCircle(
                             color = MetallicGold,
-                            radius = 11.5f,
+                            radius = 12.5f,
                             center = basePos
                         )
                         drawCircle(
                             color = EspressoBrown,
-                            radius = 5f,
+                            radius = 5.5f,
                             center = basePos
                         )
                         val baseLabel = textMeasurer.measure(
-                            text = "POS UTAMA SR",
+                            text = "🏛️ SEKOLAH RAKYAT (POS SR)",
                             style = TextStyle(
                                 color = SoftGoldHighlight,
-                                fontSize = 9.sp,
+                                fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         )
-                        val baseTagW = baseLabel.size.width + 12f
-                        val baseTagH = baseLabel.size.height + 5f
-                        val baseTagOffset = Offset(basePos.x - baseTagW / 2f, basePos.y - 32f)
+                        val coordSubLabel = textMeasurer.measure(
+                            text = "-7.872575, 112.169353",
+                            style = TextStyle(
+                                color = VintageCreamBg.copy(alpha = 0.9f),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                        val baseTagW = maxOf(baseLabel.size.width, coordSubLabel.size.width) + 14f
+                        val baseTagH = baseLabel.size.height + coordSubLabel.size.height + 7f
+                        val baseTagOffset = Offset(
+                            x = (basePos.x - baseTagW / 2f).coerceIn(6f, (w - baseTagW - 6f).coerceAtLeast(6f)),
+                            y = (basePos.y - 20f - baseTagH).coerceAtLeast(6f)
+                        )
                         drawRoundRect(
-                            color = EspressoBrown.copy(alpha = 0.94f),
+                            color = EspressoBrown.copy(alpha = 0.95f),
                             topLeft = baseTagOffset,
                             size = Size(baseTagW, baseTagH),
-                            cornerRadius = CornerRadius(6f, 6f)
+                            cornerRadius = CornerRadius(7f, 7f)
                         )
                         drawRoundRect(
                             color = MetallicGold,
                             topLeft = baseTagOffset,
                             size = Size(baseTagW, baseTagH),
-                            cornerRadius = CornerRadius(6f, 6f),
-                            style = Stroke(width = 1.2f)
+                            cornerRadius = CornerRadius(7f, 7f),
+                            style = Stroke(width = 1.4f)
                         )
                         drawText(
                             textLayoutResult = baseLabel,
-                            topLeft = Offset(baseTagOffset.x + 6f, baseTagOffset.y + 2.5f)
+                            topLeft = Offset(
+                                baseTagOffset.x + (baseTagW - baseLabel.size.width) / 2f,
+                                baseTagOffset.y + 2.5f
+                            )
+                        )
+                        drawText(
+                            textLayoutResult = coordSubLabel,
+                            topLeft = Offset(
+                                baseTagOffset.x + (baseTagW - coordSubLabel.size.width) / 2f,
+                                baseTagOffset.y + baseLabel.size.height + 2.5f
+                            )
                         )
                     }
 
@@ -947,6 +1045,59 @@ fun VintageRealTimeMapPanel(
                         }
                     }
 
+                    // 5B. Live Device GPS Marker ("Posisi GPS HP") when device GPS is available
+                    if (deviceLat != null && deviceLng != null) {
+                        val gpsPt = project(deviceLat, deviceLng)
+                        if (gpsPt.x in -120f..(w + 120f) && gpsPt.y in -120f..(h + 120f)) {
+                            drawCircle(
+                                color = Color(0xFF1976D2).copy(alpha = pulseAlpha * 0.55f),
+                                radius = 24f * pulseRadiusMultiplier,
+                                center = gpsPt
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = 11f,
+                                center = gpsPt
+                            )
+                            drawCircle(
+                                color = Color(0xFF1565C0),
+                                radius = 8f,
+                                center = gpsPt
+                            )
+                            if (displayTrips.isEmpty()) {
+                                val gpsLabel = textMeasurer.measure(
+                                    text = String.format(
+                                        java.util.Locale.US,
+                                        "GPS HP LIVE (%.4f, %.4f)",
+                                        deviceLat,
+                                        deviceLng
+                                    ),
+                                    style = TextStyle(
+                                        color = Color.White,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                val gTagW = gpsLabel.size.width + 14f
+                                val gTagH = gpsLabel.size.height + 6f
+                                val gTagTopLeft = Offset(
+                                    x = (gpsPt.x - gTagW / 2f).coerceIn(8f, (w - gTagW - 8f).coerceAtLeast(8f)),
+                                    y = (gpsPt.y - 34f).coerceAtLeast(54f)
+                                )
+                                drawRoundRect(
+                                    color = Color(0xFF1565C0).copy(alpha = 0.94f),
+                                    topLeft = gTagTopLeft,
+                                    size = Size(gTagW, gTagH),
+                                    cornerRadius = CornerRadius(7f, 7f)
+                                )
+                                drawText(
+                                    textLayoutResult = gpsLabel,
+                                    topLeft = Offset(gTagTopLeft.x + 7f, gTagTopLeft.y + 3f)
+                                )
+                            }
+                        }
+                    }
+
                     // 6. Dynamic Distance Scale Bar (Anchored neatly at Top-Left below vehicle selector chips)
                     val metersPerPixel = (156543.03392 * cos(Math.toRadians(renderCenterLat))) / 2.0.pow(smoothZoom.toDouble())
                     val targetBarPx = 85.0
@@ -1022,12 +1173,26 @@ fun VintageRealTimeMapPanel(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Compact Live OSM Status Pill
+                        // Compact Live OSM + Offline Tile Cache Status Pill (Tap to pre-cache current area for offline use)
+                        val cachedCount = OsmTileStore.cachedDiskTileCount.intValue
+                        val isOfflineMode = OsmTileStore.isOfflineFallbackActive.value
+                        val isPreCaching = OsmTileStore.isPreCachingArea.value
                         Surface(
+                            onClick = {
+                                OsmTileStore.downloadOfflineAreaAround(
+                                    context = context,
+                                    centerLat = centerLat,
+                                    centerLng = centerLng
+                                )
+                            },
                             shape = RoundedCornerShape(50),
-                            color = VintageCardCream.copy(alpha = 0.94f),
-                            border = BorderStroke(1.dp, AntiqueGold),
-                            shadowElevation = 2.dp
+                            color = if (isOfflineMode) VintageAmberBg.copy(alpha = 0.95f) else VintageCardCream.copy(alpha = 0.94f),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isOfflineMode) VintageAmberPending else AntiqueGold
+                            ),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier.testTag("osm_tile_cache_status_pill")
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1035,15 +1200,34 @@ fun VintageRealTimeMapPanel(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Explore,
-                                    contentDescription = "OpenStreetMap",
-                                    tint = EspressoBrown,
+                                    contentDescription = "Cache Peta OpenStreetMap",
+                                    tint = if (isOfflineMode) VintageAmberPending else EspressoBrown,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = String.format(java.util.Locale.US, "OSM Z%.1f", smoothZoom),
+                                    text = when {
+                                        isPreCaching -> String.format(
+                                            java.util.Locale.US,
+                                            "Z%.1f • Menyimpan Cache (%d)",
+                                            smoothZoom,
+                                            cachedCount
+                                        )
+                                        isOfflineMode -> String.format(
+                                            java.util.Locale.US,
+                                            "Mode Cache Offline (%d Tile)",
+                                            cachedCount
+                                        )
+                                        cachedCount > 0 -> String.format(
+                                            java.util.Locale.US,
+                                            "OSM Z%.1f • %d Cache",
+                                            smoothZoom,
+                                            cachedCount
+                                        )
+                                        else -> String.format(java.util.Locale.US, "OSM Z%.1f", smoothZoom)
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = EspressoBrown,
+                                    color = if (isOfflineMode) DeepInkBrown else EspressoBrown,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -1062,6 +1246,12 @@ fun VintageRealTimeMapPanel(
                                             Manifest.permission.ACCESS_COARSE_LOCATION
                                         )
                                     )
+                                    if (deviceLat != null && deviceLng != null) {
+                                        followSelectedVehicle = true
+                                        centerLat = deviceLat
+                                        centerLng = deviceLng
+                                        targetZoom = 15.2f
+                                    }
                                 },
                                 shape = RoundedCornerShape(50),
                                 color = if (isGpsEnabled) VintageGreenBg.copy(alpha = 0.95f) else SoftGoldHighlight.copy(alpha = 0.95f),
@@ -1081,7 +1271,7 @@ fun VintageRealTimeMapPanel(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = if (isGpsEnabled) "GPS Aktif" else "GPS HP",
+                                        text = if (isGpsEnabled && deviceLat != null) "GPS Live Aktif" else if (isGpsEnabled) "GPS Aktif" else "Aktifkan GPS HP",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (isGpsEnabled) VintageGreenSuccess else DeepInkBrown,
                                         fontWeight = FontWeight.Bold
@@ -1195,12 +1385,34 @@ fun VintageRealTimeMapPanel(
                     )
                     MapControlButton(
                         icon = Icons.Default.MyLocation,
-                        contentDescription = "Fokus ke Kendaraan / Pos Utama",
+                        contentDescription = "Fokus ke Lokasi GPS HP / Kendaraan",
                         onClick = {
                             followSelectedVehicle = true
-                            centerLat = selectedTrip?.currentLat ?: FleetRepository.BASE_LAT
-                            centerLng = selectedTrip?.currentLng ?: FleetRepository.BASE_LNG
-                            targetZoom = 14.2f
+                            if (deviceLat != null && deviceLng != null) {
+                                centerLat = deviceLat
+                                centerLng = deviceLng
+                                targetZoom = 15.2f
+                            } else {
+                                permissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                                centerLat = selectedTrip?.currentLat ?: FleetRepository.BASE_LAT
+                                centerLng = selectedTrip?.currentLng ?: FleetRepository.BASE_LNG
+                                targetZoom = 14.5f
+                            }
+                        }
+                    )
+                    MapControlButton(
+                        icon = Icons.Default.Shield,
+                        contentDescription = "Fokus ke Titik Asal Sekolah Rakyat (-7.872575, 112.169353)",
+                        onClick = {
+                            followSelectedVehicle = false
+                            centerLat = FleetRepository.BASE_LAT
+                            centerLng = FleetRepository.BASE_LNG
+                            targetZoom = 15.5f
                         }
                     )
                     MapControlButton(

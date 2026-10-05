@@ -14,10 +14,10 @@ class FleetRepository(private val dao: FleetDao) {
     val userAccounts: Flow<List<UserAccountEntity>> = dao.getAllUserAccounts()
 
     companion object {
-        // Pos Utama Keamanan SR (Base Camp Coordinates)
-        const val BASE_LAT = -7.2575
-        const val BASE_LNG = 112.7521
-        const val BASE_NAME = "Pos Utama Keamanan SR (Garasi Pusat)"
+        // Lokasi Sekolah Rakyat / Pos Utama Keamanan SR (Titik Asal Seluruh Kendaraan)
+        const val BASE_LAT = -7.872575
+        const val BASE_LNG = 112.169353
+        const val BASE_NAME = "Sekolah Rakyat (Pos Utama SR • -7.872575, 112.169353)"
     }
 
     suspend fun ensureSeedData() {
@@ -27,24 +27,24 @@ class FleetRepository(private val dao: FleetDao) {
             VehicleEntity(
                 id = "VH_GRANMAX",
                 name = "Gran Max",
-                plateNumber = "L 8841 SR",
-                category = "Mobil Operasional & Logistik",
+                plateNumber = "AG 8841 SR",
+                category = "Mobil Operasional & Logistik SR",
                 capacityInfo = "Pick-Up / Box • 3 Penumpang + Kargo",
                 fuelLevelPercent = 92
             ),
             VehicleEntity(
                 id = "VH_NMAX",
                 name = "N-Max",
-                plateNumber = "L 4029 SR",
-                category = "Motor Operasional Cepat",
+                plateNumber = "AG 4029 SR",
+                category = "Motor Operasional Cepat SR",
                 capacityInfo = "Yamaha N-Max 155 • 2 Penumpang",
                 fuelLevelPercent = 88
             ),
             VehicleEntity(
                 id = "VH_VELOZ",
                 name = "Avanza Veloz",
-                plateNumber = "L 1925 SR",
-                category = "Mobil Dinas & Tamu Eksekutif",
+                plateNumber = "AG 1925 SR",
+                category = "Mobil Dinas & Tamu Sekolah Rakyat",
                 capacityInfo = "MPV 7 Penumpang • Kabin Nyaman",
                 fuelLevelPercent = 95
             )
@@ -53,57 +53,59 @@ class FleetRepository(private val dao: FleetDao) {
 
         val defaultDestinations = listOf(
             DestinationEntity(
-                name = "Gudang Logistik Utama SR",
-                addressCategory = "Kawasan Industri Rungkut Blok B-12",
-                latitude = -7.3185,
-                longitude = 112.7712,
+                name = "Puskesmas Wates Kediri",
+                addressCategory = "Jl. Raya Kediri - Blitar, Kec. Wates, Kab. Kediri",
+                latitude = -7.9165,
+                longitude = 112.1118,
                 isCustom = false
             ),
             DestinationEntity(
-                name = "Kantor Cabang Pusat",
-                addressCategory = "Jl. Basuki Rahmat No. 88",
-                latitude = -7.2654,
-                longitude = 112.7418,
+                name = "RSUD Simpang Lima Gumul (RS SLG)",
+                addressCategory = "Jl. Galuh Candrakirana, Ngasem, Kab. Kediri",
+                latitude = -7.8194,
+                longitude = 112.0637,
                 isCustom = false
             ),
             DestinationEntity(
-                name = "Workshop & Bengkel Resmi SR",
-                addressCategory = "Jl. Ahmad Yani No. 142",
-                latitude = -7.3091,
-                longitude = 112.7345,
+                name = "Pasar & Pusat Logistik Wates",
+                addressCategory = "Kec. Wates, Kab. Kediri (Belanja Dapur & Logistik SR)",
+                latitude = -7.9182,
+                longitude = 112.1132,
                 isCustom = false
             ),
             DestinationEntity(
-                name = "Pelabuhan & Cargo Tanjung Perak",
-                addressCategory = "Terminal Jamrud Utara",
-                latitude = -7.2048,
-                longitude = 112.7294,
+                name = "RSUD Kabupaten Kediri (RSKK Pare)",
+                addressCategory = "Jl. Pahlawan Kusuma Bangsa No. 1, Pare, Kab. Kediri",
+                latitude = -7.7621,
+                longitude = 112.1874,
                 isCustom = false
             ),
             DestinationEntity(
-                name = "Bandara Internasional Juanda T2",
-                addressCategory = "Area Penjemputan Dinas VIP",
-                latitude = -7.3798,
-                longitude = 112.7869,
+                name = "Dinas Sosial & Pendidikan Kab. Kediri",
+                addressCategory = "Kawasan Pemerintahan Kab. Kediri, Ngasem",
+                latitude = -7.8112,
+                longitude = 112.0568,
                 isCustom = false
             ),
             DestinationEntity(
-                name = "Kantor Klien / Mitra Distribusi",
-                addressCategory = "Kawasan Pergudangan Margomulyo",
-                latitude = -7.2432,
-                longitude = 112.6815,
+                name = "Stasiun Kediri",
+                addressCategory = "Jl. Stasiun, Balowerti, Kec. Kota, Kota Kediri",
+                latitude = -7.8174,
+                longitude = 112.0154,
                 isCustom = false
             ),
             DestinationEntity(
-                name = "SPBU & Pusat Pengisian BBM",
-                addressCategory = "Jl. Raya Gubeng No. 45",
-                latitude = -7.2720,
-                longitude = 112.7505,
+                name = "SPBU & Bengkel Operasional Terdekat",
+                addressCategory = "Jalur Utama Plosoklaten - Wates, Kab. Kediri",
+                latitude = -7.8840,
+                longitude = 112.1485,
                 isCustom = false
             )
         )
         dao.insertDestinations(defaultDestinations)
     }
+
+    private fun addressSubtitleOrCategory(text: String): String = text
 
     suspend fun getAccountByEmail(email: String): UserAccountEntity? {
         return dao.getUserAccountByEmail(email.trim())
@@ -259,11 +261,16 @@ class FleetRepository(private val dao: FleetDao) {
         selectedDestinations: List<DestinationEntity>,
         departureEstimate: String,
         returnEstimate: String,
-        startOdometerKm: Int
+        startOdometerKm: Int,
+        initialLat: Double? = null,
+        initialLng: Double? = null
     ): Long {
         val destNames = selectedDestinations.joinToString("|") { it.name }
         val destCoords = selectedDestinations.joinToString(";") { "${it.latitude},${it.longitude}" }
         val now = System.currentTimeMillis()
+        val hasRealGps = initialLat != null && initialLng != null
+        val startLat = initialLat ?: BASE_LAT
+        val startLng = initialLng ?: BASE_LNG
         val trip = TripRequestEntity(
             vehicleId = vehicle.id,
             vehicleName = vehicle.name,
@@ -277,34 +284,54 @@ class FleetRepository(private val dao: FleetDao) {
             returnEstimate = returnEstimate.trim(),
             startOdometerKm = startOdometerKm,
             status = TripStatus.PENDING_APPROVAL.name,
-            currentLat = BASE_LAT,
-            currentLng = BASE_LNG,
+            currentLat = startLat,
+            currentLng = startLng,
             currentSpeedKmh = 0,
             progressPercent = 0f,
             currentTargetIndex = 0,
+            isGpsRealDevice = hasRealGps,
             createdAt = now,
             updatedAt = now
         )
         return dao.insertTripRequest(trip)
     }
 
-    suspend fun approveTrip(tripId: Int, officerName: String, notes: String) {
+    suspend fun approveTrip(
+        tripId: Int,
+        officerName: String,
+        notes: String,
+        deviceLat: Double? = null,
+        deviceLng: Double? = null
+    ) {
         val trip = dao.getTripById(tripId) ?: return
         val firstCoord = trip.parsedCoordinates.firstOrNull()
         val now = System.currentTimeMillis()
-        // Move vehicle slightly out of SR gate upon security approval and initialize breadcrumb trail from SR Base
-        val initialLat = if (firstCoord != null) {
-            BASE_LAT + (firstCoord.first - BASE_LAT) * 0.06
-        } else BASE_LAT
-        val initialLng = if (firstCoord != null) {
-            BASE_LNG + (firstCoord.second - BASE_LNG) * 0.06
-        } else BASE_LNG
+        val useRealGps = (deviceLat != null && deviceLng != null) || trip.isGpsRealDevice
+        val startBaseLat = deviceLat ?: if (trip.isGpsRealDevice) trip.currentLat else BASE_LAT
+        val startBaseLng = deviceLng ?: if (trip.isGpsRealDevice) trip.currentLng else BASE_LNG
 
-        val initialDistKm = haversineKm(BASE_LAT, BASE_LNG, initialLat, initialLng)
-        val initialTrail = buildString {
-            append(formatCoordPair(BASE_LAT, BASE_LNG))
-            append(";")
-            append(formatCoordPair(initialLat, initialLng))
+        // If real GPS is active, keep exact real GPS coordinate; otherwise move slightly toward destination
+        val initialLat = if (useRealGps) {
+            startBaseLat
+        } else if (firstCoord != null) {
+            startBaseLat + (firstCoord.first - startBaseLat) * 0.06
+        } else startBaseLat
+
+        val initialLng = if (useRealGps) {
+            startBaseLng
+        } else if (firstCoord != null) {
+            startBaseLng + (firstCoord.second - startBaseLng) * 0.06
+        } else startBaseLng
+
+        val initialDistKm = haversineKm(startBaseLat, startBaseLng, initialLat, initialLng)
+        val initialTrail = if (useRealGps) {
+            formatCoordPair(initialLat, initialLng)
+        } else {
+            buildString {
+                append(formatCoordPair(startBaseLat, startBaseLng))
+                append(";")
+                append(formatCoordPair(initialLat, initialLng))
+            }
         }
 
         dao.updateTripRequest(
@@ -314,8 +341,9 @@ class FleetRepository(private val dao: FleetDao) {
                 securityNotes = notes.ifBlank { "Izin keluar disetujui Keamanan. Jejak rute & jarak tempuh direkam otomatis." },
                 currentLat = initialLat,
                 currentLng = initialLng,
-                currentSpeedKmh = if (trip.vehicleId == "VH_NMAX") 38 else 45,
+                currentSpeedKmh = if (useRealGps) 0 else if (trip.vehicleId == "VH_NMAX") 38 else 45,
                 progressPercent = 0.04f,
+                isGpsRealDevice = useRealGps,
                 routeTrailCoordsText = initialTrail,
                 totalDistanceTraveledKm = roundKm(initialDistKm),
                 endOdometerKm = trip.startOdometerKm + kotlin.math.ceil(initialDistKm).toInt(),
@@ -403,55 +431,72 @@ class FleetRepository(private val dao: FleetDao) {
         speedKmh: Int
     ) {
         val activeTrips = dao.getActiveTripsSnapshot()
-        val matchingTrip = activeTrips.firstOrNull {
-            it.driverName.equals(driverName, ignoreCase = true)
-        } ?: activeTrips.firstOrNull() ?: return
+        if (activeTrips.isEmpty()) return
 
-        val existingTrail = matchingTrip.parsedTrailCoordinates.toMutableList()
-        if (existingTrail.isEmpty()) {
-            existingTrail.add(Pair(BASE_LAT, BASE_LNG))
-        }
-        val lastPt = existingTrail.last()
-        val stepKm = haversineKm(lastPt.first, lastPt.second, lat, lng)
-        if (stepKm >= 0.015) {
-            existingTrail.add(Pair(lat, lng))
-        }
-        val trimmedTrail = if (existingTrail.size > 160) {
-            listOf(existingTrail.first()) + existingTrail.takeLast(159)
-        } else {
-            existingTrail
-        }
+        // Update matching driver trip or all active trips when monitoring from the device
+        val targets = activeTrips.filter {
+            driverName.isNotBlank() && it.driverName.equals(driverName, ignoreCase = true)
+        }.ifEmpty { activeTrips }
 
-        val newTotalKm = roundKm(matchingTrip.totalDistanceTraveledKm + stepKm)
-        val newEndOdo = matchingTrip.startOdometerKm + kotlin.math.ceil(newTotalKm).toInt()
+        for (matchingTrip in targets) {
+            val existingTrail = matchingTrip.parsedTrailCoordinates.toMutableList()
+            // If previous trail was only simulated around Surabaya BASE_LAT while real GPS is elsewhere, reset trail to real GPS
+            if (existingTrail.isNotEmpty() && !matchingTrip.isGpsRealDevice) {
+                val distFromFirst = haversineKm(existingTrail.first().first, existingTrail.first().second, lat, lng)
+                if (distFromFirst > 5.0) {
+                    existingTrail.clear()
+                }
+            }
+            if (existingTrail.isEmpty()) {
+                existingTrail.add(Pair(lat, lng))
+            }
+            val lastPt = existingTrail.last()
+            val stepKm = haversineKm(lastPt.first, lastPt.second, lat, lng)
+            if (stepKm >= 0.008) {
+                existingTrail.add(Pair(lat, lng))
+            }
+            val trimmedTrail = if (existingTrail.size > 160) {
+                listOf(existingTrail.first()) + existingTrail.takeLast(159)
+            } else {
+                existingTrail
+            }
 
-        val coords = matchingTrip.parsedCoordinates
-        val target = coords.getOrNull(matchingTrip.currentTargetIndex) ?: coords.lastOrNull()
-        val computedProgress = if (target != null) {
-            val totalDist = haversineKm(BASE_LAT, BASE_LNG, target.first, target.second).coerceAtLeast(0.5)
-            val remDist = haversineKm(lat, lng, target.first, target.second)
-            (1.0 - (remDist / totalDist)).toFloat().coerceIn(0.05f, 0.99f)
-        } else matchingTrip.progressPercent
+            val newTotalKm = roundKm(calculatePolylineDistanceKm(trimmedTrail))
+            val newEndOdo = matchingTrip.startOdometerKm + kotlin.math.ceil(newTotalKm).toInt()
 
-        dao.updateTripRequest(
-            matchingTrip.copy(
-                currentLat = lat,
-                currentLng = lng,
-                currentSpeedKmh = speedKmh.coerceAtLeast(12),
-                progressPercent = computedProgress,
-                isGpsRealDevice = true,
-                routeTrailCoordsText = trimmedTrail.joinToString(";") { formatCoordPair(it.first, it.second) },
-                totalDistanceTraveledKm = newTotalKm,
-                endOdometerKm = newEndOdo,
-                updatedAt = System.currentTimeMillis()
+            val coords = matchingTrip.parsedCoordinates
+            val originPt = trimmedTrail.firstOrNull() ?: Pair(lat, lng)
+            val target = coords.getOrNull(matchingTrip.currentTargetIndex) ?: coords.lastOrNull()
+            val computedProgress = if (target != null) {
+                val totalDist = haversineKm(originPt.first, originPt.second, target.first, target.second).coerceAtLeast(0.3)
+                val remDist = haversineKm(lat, lng, target.first, target.second)
+                (1.0 - (remDist / totalDist)).toFloat().coerceIn(0.05f, 0.99f)
+            } else matchingTrip.progressPercent
+
+            dao.updateTripRequest(
+                matchingTrip.copy(
+                    currentLat = lat,
+                    currentLng = lng,
+                    currentSpeedKmh = speedKmh.coerceAtLeast(0),
+                    progressPercent = computedProgress,
+                    isGpsRealDevice = true,
+                    routeTrailCoordsText = trimmedTrail.joinToString(";") { formatCoordPair(it.first, it.second) },
+                    totalDistanceTraveledKm = newTotalKm,
+                    endOdometerKm = newEndOdo,
+                    updatedAt = System.currentTimeMillis()
+                )
             )
-        )
+        }
     }
 
-    suspend fun advanceActiveTripsTelemetry(stepMultiplier: Float = 1f) {
+    suspend fun advanceActiveTripsTelemetry(stepMultiplier: Float = 1f, forceEvenIfRealGps: Boolean = false) {
         val activeTrips = dao.getActiveTripsSnapshot()
         val now = System.currentTimeMillis()
         for (trip in activeTrips) {
+            // Do not overwrite real-time GPS hardware position unless the user explicitly presses manual step button
+            if (trip.isGpsRealDevice && !forceEvenIfRealGps) {
+                continue
+            }
             val coords = trip.parsedCoordinates
             if (coords.isEmpty()) continue
 

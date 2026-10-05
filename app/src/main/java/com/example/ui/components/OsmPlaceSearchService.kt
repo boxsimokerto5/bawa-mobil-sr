@@ -25,6 +25,14 @@ data class OsmPlaceSuggestion(
 object OsmPlaceSearchService {
 
     private val curatedIndonesianPlaces = listOf(
+        // Titik Pusat Sekolah Rakyat (Asal Seluruh Kendaraan SR)
+        OsmPlaceSuggestion(
+            title = "Sekolah Rakyat (Pos Utama & Garasi Armada SR)",
+            addressSubtitle = "Titik Asal Kendaraan SR • Koordinat: -7.872575, 112.169353, Kab. Kediri",
+            latitude = -7.872575,
+            longitude = 112.169353,
+            categoryBadge = "Pos Utama SR"
+        ),
         // RS SLG / Kediri & Sekitarnya (sesuai contoh pengguna)
         OsmPlaceSuggestion(
             title = "RSUD Simpang Lima Gumul (RS SLG) Kediri",
@@ -60,6 +68,48 @@ object OsmPlaceSearchService {
             latitude = -7.8384,
             longitude = 112.0279,
             categoryBadge = "Rumah Sakit"
+        ),
+        OsmPlaceSuggestion(
+            title = "Puskesmas Wates Kediri",
+            addressSubtitle = "Jl. Raya Kediri - Blitar, Wates, Kec. Wates, Kabupaten Kediri, Jawa Timur",
+            latitude = -7.9165,
+            longitude = 112.1118,
+            categoryBadge = "Puskesmas"
+        ),
+        OsmPlaceSuggestion(
+            title = "Pasar & Kecamatan Wates Kediri",
+            addressSubtitle = "Jl. Raya Wates, Kec. Wates, Kabupaten Kediri, Jawa Timur",
+            latitude = -7.9182,
+            longitude = 112.1132,
+            categoryBadge = "Kecamatan Wates"
+        ),
+        OsmPlaceSuggestion(
+            title = "Puskesmas Ngasem Kediri",
+            addressSubtitle = "Jl. Raya Pamenang, Ngasem, Kec. Ngasem, Kabupaten Kediri, Jawa Timur",
+            latitude = -7.8072,
+            longitude = 112.0428,
+            categoryBadge = "Puskesmas"
+        ),
+        OsmPlaceSuggestion(
+            title = "Puskesmas Pare Kediri",
+            addressSubtitle = "Jl. Letjen Sutoyo, Pare, Kec. Pare, Kabupaten Kediri, Jawa Timur",
+            latitude = -7.7689,
+            longitude = 112.1965,
+            categoryBadge = "Puskesmas"
+        ),
+        OsmPlaceSuggestion(
+            title = "RSUD Kabupaten Kediri (RSKK Pare)",
+            addressSubtitle = "Jl. Pahlawan Kusuma Bangsa No.1, Pare, Kabupaten Kediri, Jawa Timur",
+            latitude = -7.7621,
+            longitude = 112.1874,
+            categoryBadge = "Rumah Sakit"
+        ),
+        OsmPlaceSuggestion(
+            title = "Alun-Alun Kota Kediri",
+            addressSubtitle = "Jl. Panglima Sudirman, Kampung Dalem, Kec. Kota, Kota Kediri",
+            latitude = -7.8268,
+            longitude = 112.0118,
+            categoryBadge = "Pusat Kota"
         ),
         // Rumah Sakit Utama Surabaya & Jawa Timur
         OsmPlaceSuggestion(
@@ -230,6 +280,9 @@ object OsmPlaceSearchService {
                 }
                 if (place.title.contains("SLG", ignoreCase = true) || place.title.contains("Simpang Lima Gumul", ignoreCase = true)) {
                     append(" rs slg rumah sakit slg simpang lima gumul kediri ")
+                }
+                if (place.title.contains("Puskesmas", ignoreCase = true) || place.categoryBadge.contains("Puskesmas", ignoreCase = true)) {
+                    append(" puskesmas pkm klinik kesehatan medis ")
                 }
             }
 

@@ -137,6 +137,8 @@ fun TripPlanFormScreen(
     preselectedVehicleId: String?,
     defaultDriverName: String,
     defaultDriverDivision: String,
+    deviceLat: Double? = null,
+    deviceLng: Double? = null,
     onAddCustomDestination: (String, String, Double, Double, (DestinationEntity) -> Unit) -> Unit,
     onSubmitPlan: (
         vehicle: VehicleEntity,
@@ -736,9 +738,9 @@ fun TripPlanFormScreen(
     // Modal Dialog to Add Custom Destination with Real OpenStreetMap Search Auto-Suggest & Pin Picker
     if (showAddDestinationDialog) {
         val context = LocalContext.current
-        var pickedLat by remember { mutableDoubleStateOf(-7.2819) }
-        var pickedLng by remember { mutableDoubleStateOf(112.7382) }
-        var pickerZoom by remember { mutableFloatStateOf(14.5f) }
+        var pickedLat by remember { mutableDoubleStateOf(deviceLat ?: FleetRepository.BASE_LAT) }
+        var pickedLng by remember { mutableDoubleStateOf(deviceLng ?: FleetRepository.BASE_LNG) }
+        var pickerZoom by remember { mutableFloatStateOf(14.8f) }
         val smoothPickerZoom by animateFloatAsState(
             targetValue = pickerZoom,
             animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
@@ -756,21 +758,43 @@ fun TripPlanFormScreen(
         )
 
         var isPinnedFromSuggestion by remember { mutableStateOf(false) }
+        var isManuallyDraggedOrTapped by remember { mutableStateOf(false) }
         var isSearchingPlaces by remember { mutableStateOf(false) }
         var showSuggestionsDropdown by remember { mutableStateOf(true) }
         var suggestions by remember {
             mutableStateOf(OsmPlaceSearchService.getInstantLocalSuggestions(""))
         }
 
-        // Live auto-suggest as the user types in Nama Tempat / Tujuan Baru
+        // Live auto-suggest and automatic map coordinate preview as the user types in Nama Tempat / Tujuan Baru
         LaunchedEffect(newDestName) {
             val query = newDestName.trim()
-            suggestions = OsmPlaceSearchService.getInstantLocalSuggestions(query)
+            val localInstant = OsmPlaceSearchService.getInstantLocalSuggestions(query)
+            suggestions = localInstant
+            if (query.length >= 3 && !isManuallyDraggedOrTapped && localInstant.isNotEmpty()) {
+                val topMatch = localInstant.first()
+                pickedLat = topMatch.latitude
+                pickedLng = topMatch.longitude
+                pickerZoom = 15.3f
+                isPinnedFromSuggestion = true
+                if (newDestAddress.isBlank()) {
+                    newDestAddress = topMatch.addressSubtitle
+                }
+            }
             if (query.length >= 2) {
                 isSearchingPlaces = true
                 delay(260L)
                 val merged = OsmPlaceSearchService.searchPlacesWithNominatim(query)
                 suggestions = merged
+                if (query.length >= 3 && !isManuallyDraggedOrTapped && merged.isNotEmpty()) {
+                    val best = merged.first()
+                    pickedLat = best.latitude
+                    pickedLng = best.longitude
+                    pickerZoom = 15.4f
+                    isPinnedFromSuggestion = true
+                    if (newDestAddress.isBlank()) {
+                        newDestAddress = best.addressSubtitle
+                    }
+                }
                 isSearchingPlaces = false
             } else {
                 isSearchingPlaces = false
@@ -875,9 +899,11 @@ fun TripPlanFormScreen(
                                                     focalNewTy - dyPx / newTileSize,
                                                     newZInt
                                                 ).coerceIn(-80.0, 80.0)
+                                                isManuallyDraggedOrTapped = true
                                             } else if (pan != Offset.Zero) {
                                                 pickedLng = WebMercator.tileXToLon(pannedTx, oldZInt).coerceIn(-179.9, 179.9)
                                                 pickedLat = WebMercator.tileYToLat(pannedTy, oldZInt).coerceIn(-80.0, 80.0)
+                                                isManuallyDraggedOrTapped = true
                                             }
                                         }
                                     }
@@ -899,6 +925,7 @@ fun TripPlanFormScreen(
                                                 pickedLng = WebMercator.tileXToLon(tappedTx, zInt)
                                                 pickedLat = WebMercator.tileYToLat(tappedTy, zInt)
                                                 isPinnedFromSuggestion = true
+                                                isManuallyDraggedOrTapped = true
                                             }
                                         )
                                     }
@@ -1083,6 +1110,7 @@ fun TripPlanFormScreen(
                         value = newDestName,
                         onValueChange = {
                             newDestName = it
+                            isManuallyDraggedOrTapped = false
                             showSuggestionsDropdown = true
                         },
                         label = { Text("Nama Tempat / Tujuan Baru (Ketik untuk Usulan)") },

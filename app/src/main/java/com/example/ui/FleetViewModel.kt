@@ -745,6 +745,8 @@ class FleetViewModel(
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            val deviceLat = _session.value.lastDeviceLat
+            val deviceLng = _session.value.lastDeviceLng
             repository.submitTripPlan(
                 vehicle = vehicle,
                 driverName = driverName,
@@ -753,7 +755,9 @@ class FleetViewModel(
                 selectedDestinations = selectedDestinations,
                 departureEstimate = departureEstimate,
                 returnEstimate = returnEstimate,
-                startOdometerKm = startOdometerKm
+                startOdometerKm = startOdometerKm,
+                initialLat = deviceLat,
+                initialLng = deviceLng
             )
             launch(Dispatchers.Main) {
                 _session.update {
@@ -770,8 +774,16 @@ class FleetViewModel(
 
     fun approveTripRequest(tripId: Int, vehicleName: String, notes: String) {
         val officer = _session.value.loggedInSecurityOfficer
+        val deviceLat = _session.value.lastDeviceLat
+        val deviceLng = _session.value.lastDeviceLng
         viewModelScope.launch(Dispatchers.IO) {
-            repository.approveTrip(tripId = tripId, officerName = officer, notes = notes)
+            repository.approveTrip(
+                tripId = tripId,
+                officerName = officer,
+                notes = notes,
+                deviceLat = deviceLat,
+                deviceLng = deviceLng
+            )
             launch(Dispatchers.Main) {
                 _session.update {
                     it.copy(
@@ -818,7 +830,7 @@ class FleetViewModel(
 
     fun advanceSingleStepManual() {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.advanceActiveTripsTelemetry(2.2f)
+            repository.advanceActiveTripsTelemetry(stepMultiplier = 2.2f, forceEvenIfRealGps = true)
         }
     }
 
@@ -831,13 +843,23 @@ class FleetViewModel(
             val mgr = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
             locationManager = mgr
 
+            activeLocationListener?.let { oldListener ->
+                try {
+                    mgr.removeUpdates(oldListener)
+                } catch (_: Exception) {
+                }
+            }
+
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
                     val lat = location.latitude
                     val lng = location.longitude
-                    val speedKmh = ((location.speed * 3.6f).toInt()).coerceAtLeast(15)
+                    val speedKmh = if (location.hasSpeed()) {
+                        (location.speed * 3.6f).toInt().coerceAtLeast(0)
+                    } else 0
                     _session.update {
                         it.copy(
+                            isGpsPermissionGranted = true,
                             lastDeviceLat = lat,
                             lastDeviceLng = lng
                         )
@@ -858,19 +880,48 @@ class FleetViewModel(
             }
             activeLocationListener = listener
 
-            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            val providers = listOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
+                LocationManager.PASSIVE_PROVIDER
+            )
+            var bestInitialLocation: Location? = null
+
             for (provider in providers) {
-                if (mgr.isProviderEnabled(provider)) {
-                    mgr.requestLocationUpdates(provider, 4000L, 5f, listener)
+                try {
+                    if (mgr.isProviderEnabled(provider)) {
+                        mgr.requestLocationUpdates(provider, 2000L, 2f, listener)
+                    }
                     val lastKnown = mgr.getLastKnownLocation(provider)
                     if (lastKnown != null) {
-                        _session.update {
-                            it.copy(
-                                lastDeviceLat = lastKnown.latitude,
-                                lastDeviceLng = lastKnown.longitude
-                            )
+                        if (bestInitialLocation == null || lastKnown.time > bestInitialLocation!!.time) {
+                            bestInitialLocation = lastKnown
                         }
                     }
+                } catch (_: Exception) {
+                }
+            }
+
+            if (bestInitialLocation != null) {
+                val initLat = bestInitialLocation!!.latitude
+                val initLng = bestInitialLocation!!.longitude
+                val initSpeed = if (bestInitialLocation!!.hasSpeed()) {
+                    (bestInitialLocation!!.speed * 3.6f).toInt().coerceAtLeast(0)
+                } else 0
+                _session.update {
+                    it.copy(
+                        isGpsPermissionGranted = true,
+                        lastDeviceLat = initLat,
+                        lastDeviceLng = initLng
+                    )
+                }
+                viewModelScope.launch(Dispatchers.IO) {
+                    repository.updateLiveDeviceGpsForDriver(
+                        driverName = _session.value.loggedInUserName,
+                        lat = initLat,
+                        lng = initLng,
+                        speedKmh = initSpeed
+                    )
                 }
             }
         } catch (_: Exception) {
