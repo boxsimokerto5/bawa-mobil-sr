@@ -1179,6 +1179,12 @@ fun VintageRealTimeMapPanel(
                         val isPreCaching = OsmTileStore.isPreCachingArea.value
                         Surface(
                             onClick = {
+                                OsmTileStore.refreshAndPrefetchArea(
+                                    context = context,
+                                    centerLat = centerLat,
+                                    centerLng = centerLng,
+                                    currentZoom = discreteZoom
+                                )
                                 OsmTileStore.downloadOfflineAreaAround(
                                     context = context,
                                     centerLat = centerLat,

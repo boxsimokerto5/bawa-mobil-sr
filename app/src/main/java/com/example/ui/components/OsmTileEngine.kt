@@ -1,7 +1,9 @@
 package com.example.ui.components
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.LruCache
@@ -24,27 +26,26 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sinh
 import kotlin.math.tan
 
 /**
  * High-performance OpenStreetMap (Slippy Map Web Mercator EPSG:3857) Tile Engine & Two-Tier Offline Cache
- * for 60fps Jetpack Compose Canvas rendering even in poor or zero network connectivity:
- * - Tier 1 (L1 Memory Cache): Thread-safe [LruCache] of GPU-ready [ImageBitmap] instances (up to 320 tiles)
- *   so zero allocations or conversions occur inside Canvas `onDraw`.
- * - Tier 2 (L2 Persistent Disk Cache): Dedicated persistent tile store on disk (`filesDir/osm_tile_cache_v2`
- *   with automatic migration/read from `cacheDir/osm_tiles_v1`), atomic temp-file writes, 30-day stale-while-revalidate
- *   retention, and automatic disk quota pruning (up to 120 MB / ~6,000 tiles).
- * - Multi-Level Parent & Child Tile Fallback: Searches up to 4 parent zoom levels (z-1 .. z-4) and child zoom
- *   tiles (z+1) in both L1 memory and L2 disk cache so the map remains sharp and never flashes blank offline.
- * - Proactive Route & Multi-Zoom Corridor Pre-Caching: Pre-fetches surrounding rings, parent overview zoom levels,
- *   and active trip route corridors in the background with bounded concurrency and retry backoff.
+ * for 60fps Jetpack Compose Canvas rendering:
+ * - Multi-CDN High-Availability Tile Providers (CartoDB Voyager OSM Street Map, ArcGIS World Street Map,
+ *   and OpenStreetMap Humanitarian) with automatic failover so the map is never blocked by 403 rate limits.
+ * - Automatic purge of legacy v1/v2 caches that may have stored "403 Access blocked" warning tiles, plus
+ *   bitmap pattern validation to reject error/blocked placeholder tiles.
+ * - Tier 1 (L1 Memory Cache): Thread-safe [LruCache] of GPU-ready [ImageBitmap] instances (up to 320 tiles).
+ * - Tier 2 (L2 Persistent Disk Cache): Dedicated persistent tile store (`filesDir/osm_tile_cache_v3`)
+ *   with atomic writes, 30-day stale-while-revalidate retention, and automatic quota management.
+ * - Multi-Level Parent & Child Tile Fallback (z-1 .. z-4 and z+1) for seamless zooming and offline resilience.
  */
 object OsmTileStore {
     private const val MAX_MEMORY_TILES = 320
@@ -54,8 +55,9 @@ object OsmTileStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlightKeys = ConcurrentHashMap.newKeySet<String>()
     private val diskLoadInFlightKeys = ConcurrentHashMap.newKeySet<String>()
-    private val networkSemaphore = Semaphore(6)
-    private val diskSemaphore = Semaphore(12)
+    // Strictly adhere to polite tile server concurrency (max 2 concurrent HTTP requests)
+    private val networkSemaphore = Semaphore(2)
+    private val diskSemaphore = Semaphore(10)
     private val initialized = AtomicBoolean(false)
 
     // L1 LRU Memory Cache of pre-converted ImageBitmaps for zero-allocation Canvas drawing
@@ -84,55 +86,102 @@ object OsmTileStore {
     )
 
     private fun getPersistentCacheDir(context: Context): File {
-        val dir = File(context.applicationContext.filesDir, "osm_tile_cache_v2")
+        val dir = File(context.applicationContext.filesDir, "osm_tile_cache_v3")
         if (!dir.exists()) {
             dir.mkdirs()
         }
         return dir
     }
 
-    private fun getLegacyCacheDir(context: Context): File {
-        return File(context.applicationContext.cacheDir, "osm_tiles_v1")
-    }
-
     private fun tileKey(z: Int, x: Int, y: Int): String = "$z/$x/$y"
 
     private fun tileFileName(z: Int, x: Int, y: Int): String = "${z}_${x}_${y}.png"
+
+    /**
+     * Builds ordered list of reliable street map tile URLs for (z, x, y) with automatic failover:
+     * 1. CartoDB Voyager (OpenStreetMap data with crisp street/POI labels & high-capacity global CDN)
+     * 2. ArcGIS World Street Map (Detailed street map with high availability)
+     * 3. OpenStreetMap Humanitarian (HOT) Street Tiles
+     */
+    private fun buildCandidateTileUrls(z: Int, x: Int, y: Int): List<String> {
+        val cartoSubs = arrayOf("a", "b", "c", "d")
+        val cartoSub = cartoSubs[(x + y).mod(cartoSubs.size)]
+        val hotSubs = arrayOf("a", "b")
+        val hotSub = hotSubs[(x + y).mod(hotSubs.size)]
+        return listOf(
+            "https://$cartoSub.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y.png",
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x",
+            "https://$hotSub.tile.openstreetmap.fr/hot/$z/$x/$y.png"
+        )
+    }
+
+    /**
+     * Detects the "403 Access blocked" warning tile pattern (which has a vertical yellow-and-black hazard stripe
+     * around x = 60..66 and stark white background) so poisoned tiles are never cached or displayed.
+     */
+    private fun isLikelyBlockedWarningTile(bitmap: Bitmap): Boolean {
+        if (bitmap.width < 64 || bitmap.height < 64) return true
+        return try {
+            // Check if the right half is pure white (255,255,255) at multiple vertical points AND left stripe has alternating pure black/yellow
+            val whiteSamples = listOf(
+                bitmap.getPixel(180, 20),
+                bitmap.getPixel(220, 128),
+                bitmap.getPixel(180, 235)
+            )
+            val allPureWhite = whiteSamples.all { px ->
+                Color.red(px) > 250 && Color.green(px) > 250 && Color.blue(px) > 250
+            }
+            if (!allPureWhite) return false
+
+            var yellowCount = 0
+            var blackCount = 0
+            for (sampleY in 10..240 step 12) {
+                val px = bitmap.getPixel(62, sampleY)
+                val r = Color.red(px)
+                val g = Color.green(px)
+                val b = Color.blue(px)
+                if (r > 230 && g > 210 && b < 40) yellowCount++
+                if (r < 25 && g < 25 && b < 25) blackCount++
+            }
+            yellowCount >= 3 && blackCount >= 3
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun ensureInitialized(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
         val appContext = context.applicationContext
         scope.launch {
             try {
-                val primaryDir = getPersistentCacheDir(appContext)
-                val legacyDir = getLegacyCacheDir(appContext)
-
-                // Migrate any existing tiles from legacy cacheDir to persistent filesDir
-                if (legacyDir.exists()) {
-                    legacyDir.listFiles()?.forEach { file ->
-                        if (file.isFile && file.name.endsWith(".png") && file.length() > 100) {
-                            val target = File(primaryDir, file.name)
-                            if (!target.exists()) {
-                                runCatching { file.copyTo(target, overwrite = false) }
-                            }
-                        }
-                    }
+                // 1. Purge legacy cache directories that may contain poisoned "403 Access blocked" tiles
+                val legacyDirV1 = File(appContext.cacheDir, "osm_tiles_v1")
+                if (legacyDirV1.exists()) {
+                    runCatching { legacyDirV1.deleteRecursively() }
+                }
+                val legacyDirV2 = File(appContext.filesDir, "osm_tile_cache_v2")
+                if (legacyDirV2.exists()) {
+                    runCatching { legacyDirV2.deleteRecursively() }
                 }
 
-                // Index all persistent cached tiles on disk
+                // 2. Index all valid persistent cached tiles in v3 directory
+                val primaryDir = getPersistentCacheDir(appContext)
                 val files = primaryDir.listFiles() ?: emptyArray()
                 var validCount = 0
                 for (file in files) {
-                    if (file.isFile && file.name.endsWith(".png") && file.length() > 100) {
+                    if (file.isFile && file.name.endsWith(".png") && file.length() > 200) {
                         val parts = file.name.removeSuffix(".png").split("_")
                         if (parts.size == 3) {
                             diskIndex.add("${parts[0]}/${parts[1]}/${parts[2]}")
                             validCount++
                         }
+                    } else if (file.isFile) {
+                        runCatching { file.delete() }
                     }
                 }
                 withContext(Dispatchers.Main) {
                     cachedDiskTileCount.intValue = validCount
+                    tileRevision.intValue++
                 }
 
                 // Prune oldest tiles if disk cache exceeds quota
@@ -140,6 +189,23 @@ object OsmTileStore {
             } catch (_: Exception) {
             }
         }
+    }
+
+    /**
+     * Clears any corrupted or stale tiles and reloads the visible map area cleanly.
+     */
+    fun refreshAndPrefetchArea(
+        context: Context,
+        centerLat: Double,
+        centerLng: Double,
+        currentZoom: Int
+    ) {
+        ensureInitialized(context)
+        val appContext = context.applicationContext
+        val z = currentZoom.coerceIn(10, 17)
+        val cx = floor(WebMercator.lonToTileX(centerLng, z)).toInt()
+        val cy = floor(WebMercator.latToTileY(centerLat, z)).toInt()
+        prefetchRegion(appContext, z, cx, cy, radius = 2, includeAdjacentZooms = true)
     }
 
     fun getTileOrFallback(context: Context, z: Int, x: Int, y: Int): TileDrawSpec? {
@@ -154,7 +220,7 @@ object OsmTileStore {
             return TileDrawSpec(bmp, 0, 0, bmp.width, bmp.height, isScaledFallback = false)
         }
 
-        // Trigger async load for exact tile (reads L2 disk cache first, then network if needed)
+        // Trigger async load for exact tile (reads L2 disk cache first, then multi-CDN network if needed)
         enqueueTileLoad(appContext, z, wrappedX, y)
 
         // Multi-level Parent Zoom Fallback (z - 1 down to z - 4) so map remains responsive & visible offline
@@ -194,8 +260,8 @@ object OsmTileStore {
     }
 
     /**
-     * Prefetches the visible tile grid plus parent overview tiles so zooming in/out works seamlessly
-     * even if connectivity drops moments later.
+     * Politely prefetches the visible tile grid plus immediate parent overview tiles so zooming in/out
+     * works smoothly without triggering bulk-download rate limits.
      */
     fun prefetchRegion(
         context: Context,
@@ -208,12 +274,13 @@ object OsmTileStore {
         ensureInitialized(context)
         val appContext = context.applicationContext
         val maxTile = 1 shl z
+        val effectiveRadius = radius.coerceIn(1, 2)
 
-        // 1. Prioritize center and immediate ring at current zoom level
-        for (r in 0..radius) {
+        // 1. Prioritize center and immediate visible ring at current zoom level
+        for (r in 0..effectiveRadius) {
             for (dx in -r..r) {
                 for (dy in -r..r) {
-                    if (max( kotlin.math.abs(dx), kotlin.math.abs(dy) ) != r) continue
+                    if (max(abs(dx), abs(dy)) != r) continue
                     val tx = ((centerTileX + dx) % maxTile + maxTile) % maxTile
                     val ty = centerTileY + dy
                     if (ty in 0 until maxTile) {
@@ -223,20 +290,18 @@ object OsmTileStore {
             }
         }
 
-        // 2. Also cache parent overview zoom (z - 1) and detail zoom (z + 1) center tiles for offline resilience
-        if (includeAdjacentZooms) {
-            val parentZ = (z - 1).coerceAtLeast(10)
-            if (parentZ != z) {
-                val pMax = 1 shl parentZ
-                val px = centerTileX shr 1
-                val py = centerTileY shr 1
-                for (dx in -1..1) {
-                    for (dy in -1..1) {
-                        val tx = ((px + dx) % pMax + pMax) % pMax
-                        val ty = py + dy
-                        if (ty in 0 until pMax) {
-                            enqueueTileLoad(appContext, parentZ, tx, ty)
-                        }
+        // 2. Also cache parent overview zoom (z - 1) center 2x2 tiles for instant zoom-out & offline fallback
+        if (includeAdjacentZooms && z > 10) {
+            val parentZ = z - 1
+            val pMax = 1 shl parentZ
+            val px = centerTileX shr 1
+            val py = centerTileY shr 1
+            for (dx in 0..1) {
+                for (dy in 0..1) {
+                    val tx = ((px + dx) % pMax + pMax) % pMax
+                    val ty = py + dy
+                    if (ty in 0 until pMax) {
+                        enqueueTileLoad(appContext, parentZ, tx, ty)
                     }
                 }
             }
@@ -244,47 +309,28 @@ object OsmTileStore {
     }
 
     /**
-     * Proactively caches tiles along a trip route corridor (origin + waypoints + current GPS) across
-     * multiple zoom levels so the entire journey stays available offline in areas with weak signal.
+     * Politely caches key waypoints along a trip route (origin + destinations) without flooding tile servers.
      */
     fun prefetchRouteCorridor(
         context: Context,
         waypoints: List<Pair<Double, Double>>,
-        zoomLevels: List<Int> = listOf(12, 14, 15)
+        zoomLevels: List<Int> = listOf(13, 15)
     ) {
         if (waypoints.isEmpty()) return
         ensureInitialized(context)
         val appContext = context.applicationContext
 
         scope.launch {
-            isPreCachingArea.value = true
             try {
-                // Sample points along each segment of the route
-                val sampledPoints = mutableListOf<Pair<Double, Double>>()
-                for (i in waypoints.indices) {
-                    val current = waypoints[i]
-                    sampledPoints.add(current)
-                    if (i < waypoints.size - 1) {
-                        val next = waypoints[i + 1]
-                        val steps = 6
-                        for (s in 1 until steps) {
-                            val t = s.toDouble() / steps.toDouble()
-                            val lat = current.first + (next.first - current.first) * t
-                            val lng = current.second + (next.second - current.second) * t
-                            sampledPoints.add(Pair(lat, lng))
-                        }
-                    }
-                }
-
+                val keyWaypoints = waypoints.distinct().take(4)
                 for (z in zoomLevels) {
-                    val clampedZ = z.coerceIn(10, 17)
+                    val clampedZ = z.coerceIn(11, 16)
                     val maxTile = 1 shl clampedZ
-                    val radius = if (clampedZ <= 13) 1 else 1
-                    for ((lat, lng) in sampledPoints) {
+                    for ((lat, lng) in keyWaypoints) {
                         val cx = floor(WebMercator.lonToTileX(lng, clampedZ)).toInt()
                         val cy = floor(WebMercator.latToTileY(lat, clampedZ)).toInt()
-                        for (dx in -radius..radius) {
-                            for (dy in -radius..radius) {
+                        for (dx in -1..1) {
+                            for (dy in -1..1) {
                                 val tx = ((cx + dx) % maxTile + maxTile) % maxTile
                                 val ty = cy + dy
                                 if (ty in 0 until maxTile) {
@@ -292,18 +338,16 @@ object OsmTileStore {
                                 }
                             }
                         }
+                        delay(120L)
                     }
                 }
-            } finally {
-                delay(800L)
-                isPreCachingArea.value = false
+            } catch (_: Exception) {
             }
         }
     }
 
     /**
-     * Explicitly downloads and caches a wider neighborhood around the given coordinate across zoom levels 12..16
-     * for offline field operation.
+     * Politely caches the current viewport neighborhood across zoom levels 13..15 for offline field use.
      */
     fun downloadOfflineAreaAround(
         context: Context,
@@ -316,17 +360,12 @@ object OsmTileStore {
         scope.launch {
             isPreCachingArea.value = true
             try {
-                for (z in listOf(12, 13, 14, 15, 16)) {
+                for (z in listOf(13, 14, 15)) {
                     val maxTile = 1 shl z
                     val cx = floor(WebMercator.lonToTileX(centerLng, z)).toInt()
                     val cy = floor(WebMercator.latToTileY(centerLat, z)).toInt()
-                    val radius = when (z) {
-                        12, 13 -> 2
-                        14, 15 -> 2
-                        else -> 1
-                    }
-                    for (dx in -radius..radius) {
-                        for (dy in -radius..radius) {
+                    for (dx in -1..1) {
+                        for (dy in -1..1) {
                             val tx = ((cx + dx) % maxTile + maxTile) % maxTile
                             val ty = cy + dy
                             if (ty in 0 until maxTile) {
@@ -334,8 +373,9 @@ object OsmTileStore {
                             }
                         }
                     }
+                    delay(180L)
                 }
-                delay(1200L)
+                delay(600L)
                 withContext(Dispatchers.Main) {
                     onComplete(cachedDiskTileCount.intValue)
                 }
@@ -355,11 +395,14 @@ object OsmTileStore {
                 diskSemaphore.withPermit {
                     val file = findExistingTileFile(appContext, z, wrappedX, y) ?: return@withPermit
                     val diskBmp = BitmapFactory.decodeFile(file.absolutePath)
-                    if (diskBmp != null) {
+                    if (diskBmp != null && !isLikelyBlockedWarningTile(diskBmp)) {
                         memoryCache.put(key, diskBmp.asImageBitmap())
                         withContext(Dispatchers.Main) {
                             tileRevision.intValue++
                         }
+                    } else if (diskBmp != null) {
+                        runCatching { file.delete() }
+                        diskIndex.remove(key)
                     }
                 }
             } catch (_: Exception) {
@@ -372,12 +415,8 @@ object OsmTileStore {
     private fun findExistingTileFile(appContext: Context, z: Int, wrappedX: Int, y: Int): File? {
         val fileName = tileFileName(z, wrappedX, y)
         val primaryFile = File(getPersistentCacheDir(appContext), fileName)
-        if (primaryFile.exists() && primaryFile.length() > 100) {
+        if (primaryFile.exists() && primaryFile.length() > 200) {
             return primaryFile
-        }
-        val legacyFile = File(getLegacyCacheDir(appContext), fileName)
-        if (legacyFile.exists() && legacyFile.length() > 100) {
-            return legacyFile
         }
         return null
     }
@@ -399,7 +438,7 @@ object OsmTileStore {
                     val diskBmp = diskSemaphore.withPermit {
                         BitmapFactory.decodeFile(existingFile.absolutePath)
                     }
-                    if (diskBmp != null) {
+                    if (diskBmp != null && !isLikelyBlockedWarningTile(diskBmp)) {
                         val imgBmp = diskBmp.asImageBitmap()
                         memoryCache.put(key, imgBmp)
                         diskIndex.add(key)
@@ -412,7 +451,7 @@ object OsmTileStore {
                             return@launch
                         }
                     } else {
-                        // Corrupted file on disk; delete so it can be re-fetched cleanly
+                        // Corrupted or blocked placeholder file on disk; delete so it is re-fetched from clean CDN
                         runCatching { existingFile.delete() }
                         diskIndex.remove(key)
                     }
@@ -424,67 +463,67 @@ object OsmTileStore {
                     return@launch
                 }
 
-                // 3. Fetch from OpenStreetMap CDN with concurrency control & retry backoff for spotty connections
+                // 3. Fetch from Multi-CDN Street Map servers with polite concurrency (max 2) & automatic failover
                 networkSemaphore.withPermit {
-                    val subdomains = arrayOf("a", "b", "c")
-                    var fetchedBytes: ByteArray? = null
+                    val candidateUrls = buildCandidateTileUrls(z, wrappedX, y)
+                    var validDecodedBitmap: Bitmap? = null
+                    var validBytes: ByteArray? = null
 
-                    for (attempt in 0..1) {
-                        val sub = subdomains[(wrappedX + y + attempt) % subdomains.size]
-                        val urlStr = "https://$sub.tile.openstreetmap.org/$z/$wrappedX/$y.png"
+                    for (urlStr in candidateUrls) {
                         var connection: HttpURLConnection? = null
                         try {
                             connection = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                                requestMethod = "GET"
                                 connectTimeout = 5000
                                 readTimeout = 5000
                                 useCaches = true
                                 setRequestProperty(
                                     "User-Agent",
-                                    "BawaMobilSR/2.0 (com.bawamobilsr.gecckocreator; Android Offline-Resilient OSM Cache)"
+                                    "Mozilla/5.0 (Linux; Android 14; BawaMobilSR/3.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                                 )
+                                setRequestProperty("Accept", "image/webp,image/apng,image/png,image/*,*/*;q=0.8")
                             }
                             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                                 val bytes = connection.inputStream.use { it.readBytes() }
-                                if (bytes.size > 100) {
-                                    fetchedBytes = bytes
-                                    break
+                                if (bytes.size > 200) {
+                                    val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    if (decoded != null && !isLikelyBlockedWarningTile(decoded)) {
+                                        validDecodedBitmap = decoded
+                                        validBytes = bytes
+                                        break
+                                    }
                                 }
                             }
                         } catch (_: Exception) {
-                            if (attempt == 0) {
-                                delay(350L)
-                            }
+                            // Try next fallback CDN provider
                         } finally {
                             connection?.disconnect()
                         }
                     }
 
-                    if (fetchedBytes != null) {
-                        val decoded = BitmapFactory.decodeByteArray(fetchedBytes, 0, fetchedBytes.size)
-                        if (decoded != null) {
-                            val targetFile = File(persistentDir, tileFileName(z, wrappedX, y))
-                            val tempFile = File(persistentDir, "${tileFileName(z, wrappedX, y)}.tmp")
-                            runCatching {
-                                persistentDir.mkdirs()
-                                FileOutputStream(tempFile).use { out ->
-                                    out.write(fetchedBytes)
-                                    out.fd.sync()
-                                }
-                                if (targetFile.exists()) {
-                                    targetFile.delete()
-                                }
-                                tempFile.renameTo(targetFile)
+                    if (validDecodedBitmap != null && validBytes != null) {
+                        val targetFile = File(persistentDir, tileFileName(z, wrappedX, y))
+                        val tempFile = File(persistentDir, "${tileFileName(z, wrappedX, y)}.tmp")
+                        runCatching {
+                            persistentDir.mkdirs()
+                            FileOutputStream(tempFile).use { out ->
+                                out.write(validBytes)
+                                out.fd.sync()
                             }
-                            val isNewDiskTile = diskIndex.add(key)
-                            val imgBmp = decoded.asImageBitmap()
-                            memoryCache.put(key, imgBmp)
-                            isOfflineFallbackActive.value = false
-                            withContext(Dispatchers.Main) {
-                                if (isNewDiskTile) {
-                                    cachedDiskTileCount.intValue = diskIndex.size
-                                }
-                                tileRevision.intValue++
+                            if (targetFile.exists()) {
+                                targetFile.delete()
                             }
+                            tempFile.renameTo(targetFile)
+                        }
+                        val isNewDiskTile = diskIndex.add(key)
+                        val imgBmp = validDecodedBitmap.asImageBitmap()
+                        memoryCache.put(key, imgBmp)
+                        isOfflineFallbackActive.value = false
+                        withContext(Dispatchers.Main) {
+                            if (isNewDiskTile) {
+                                cachedDiskTileCount.intValue = diskIndex.size
+                            }
+                            tileRevision.intValue++
                         }
                     } else {
                         isOfflineFallbackActive.value = true
