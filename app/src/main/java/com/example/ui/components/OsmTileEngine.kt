@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.example.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,14 +37,14 @@ import kotlin.math.sinh
 import kotlin.math.tan
 
 /**
- * High-performance OpenStreetMap (Slippy Map Web Mercator EPSG:3857) Tile Engine & Two-Tier Offline Cache
+ * High-performance Mapbox Streets (`mapbox/streets-v12`, Web Mercator EPSG:3857) Tile Engine & Two-Tier Offline Cache
  * for 60fps Jetpack Compose Canvas rendering:
- * - Multi-CDN High-Availability Tile Providers (CartoDB Voyager OSM Street Map, ArcGIS World Street Map,
- *   and OpenStreetMap Humanitarian) with automatic failover so the map is never blocked by 403 rate limits.
- * - Automatic purge of legacy v1/v2 caches that may have stored "403 Access blocked" warning tiles, plus
- *   bitmap pattern validation to reject error/blocked placeholder tiles.
+ * - Primary Provider: Mapbox Static Tiles API (`mapbox/streets-v12`) authenticated via `BuildConfig.MAPBOX_PUBLIC_TOKEN`
+ *   (configured in the AI Studio Secrets panel), with automatic high-availability street map failover
+ *   (CartoDB Voyager & ArcGIS World Street Map) if the token is not yet configured in Secrets or network is restricted.
+ * - Automatic purge of legacy v1/v2/v3 caches so fresh Mapbox tiles load cleanly.
  * - Tier 1 (L1 Memory Cache): Thread-safe [LruCache] of GPU-ready [ImageBitmap] instances (up to 320 tiles).
- * - Tier 2 (L2 Persistent Disk Cache): Dedicated persistent tile store (`filesDir/osm_tile_cache_v3`)
+ * - Tier 2 (L2 Persistent Disk Cache): Dedicated persistent tile store (`filesDir/mapbox_tile_cache_v4`)
  *   with atomic writes, 30-day stale-while-revalidate retention, and automatic quota management.
  * - Multi-Level Parent & Child Tile Fallback (z-1 .. z-4 and z+1) for seamless zooming and offline resilience.
  */
@@ -55,8 +56,8 @@ object OsmTileStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlightKeys = ConcurrentHashMap.newKeySet<String>()
     private val diskLoadInFlightKeys = ConcurrentHashMap.newKeySet<String>()
-    // Strictly adhere to polite tile server concurrency (max 2 concurrent HTTP requests)
-    private val networkSemaphore = Semaphore(2)
+    // Polite tile server concurrency (max 4 concurrent HTTP requests for Mapbox CDN)
+    private val networkSemaphore = Semaphore(4)
     private val diskSemaphore = Semaphore(10)
     private val initialized = AtomicBoolean(false)
 
@@ -85,8 +86,17 @@ object OsmTileStore {
         val isScaledFallback: Boolean = false
     )
 
+    fun getResolvedMapboxToken(): String {
+        val raw = runCatching { BuildConfig.MAPBOX_PUBLIC_TOKEN }.getOrDefault("").trim()
+        return if (raw.startsWith("pk.") && raw != "YOUR_MAPBOX_PUBLIC_TOKEN") {
+            raw
+        } else {
+            ""
+        }
+    }
+
     private fun getPersistentCacheDir(context: Context): File {
-        val dir = File(context.applicationContext.filesDir, "osm_tile_cache_v3")
+        val dir = File(context.applicationContext.filesDir, "mapbox_tile_cache_v4")
         if (!dir.exists()) {
             dir.mkdirs()
         }
@@ -98,21 +108,23 @@ object OsmTileStore {
     private fun tileFileName(z: Int, x: Int, y: Int): String = "${z}_${x}_${y}.png"
 
     /**
-     * Builds ordered list of reliable street map tile URLs for (z, x, y) with automatic failover:
-     * 1. CartoDB Voyager (OpenStreetMap data with crisp street/POI labels & high-capacity global CDN)
-     * 2. ArcGIS World Street Map (Detailed street map with high availability)
-     * 3. OpenStreetMap Humanitarian (HOT) Street Tiles
+     * Builds ordered list of street map tile URLs for (z, x, y):
+     * 1. Mapbox Streets v12 (256px tiles) when `MAPBOX_PUBLIC_TOKEN` is configured
+     * 2. Mapbox Outdoors v12 fallback style when `MAPBOX_PUBLIC_TOKEN` is configured
+     * 3. CartoDB Voyager & ArcGIS World Street Map automatic failover
      */
     private fun buildCandidateTileUrls(z: Int, x: Int, y: Int): List<String> {
+        val token = getResolvedMapboxToken()
         val cartoSubs = arrayOf("a", "b", "c", "d")
         val cartoSub = cartoSubs[(x + y).mod(cartoSubs.size)]
-        val hotSubs = arrayOf("a", "b")
-        val hotSub = hotSubs[(x + y).mod(hotSubs.size)]
-        return listOf(
-            "https://$cartoSub.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y.png",
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x",
-            "https://$hotSub.tile.openstreetmap.fr/hot/$z/$x/$y.png"
-        )
+        return buildList {
+            if (token.isNotEmpty()) {
+                add("https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/$z/$x/$y?access_token=$token")
+                add("https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/$z/$x/$y?access_token=$token")
+            }
+            add("https://$cartoSub.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y.png")
+            add("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x")
+        }
     }
 
     /**
@@ -122,7 +134,6 @@ object OsmTileStore {
     private fun isLikelyBlockedWarningTile(bitmap: Bitmap): Boolean {
         if (bitmap.width < 64 || bitmap.height < 64) return true
         return try {
-            // Check if the right half is pure white (255,255,255) at multiple vertical points AND left stripe has alternating pure black/yellow
             val whiteSamples = listOf(
                 bitmap.getPixel(180, 20),
                 bitmap.getPixel(220, 128),
@@ -154,17 +165,18 @@ object OsmTileStore {
         val appContext = context.applicationContext
         scope.launch {
             try {
-                // 1. Purge legacy cache directories that may contain poisoned "403 Access blocked" tiles
-                val legacyDirV1 = File(appContext.cacheDir, "osm_tiles_v1")
-                if (legacyDirV1.exists()) {
-                    runCatching { legacyDirV1.deleteRecursively() }
-                }
-                val legacyDirV2 = File(appContext.filesDir, "osm_tile_cache_v2")
-                if (legacyDirV2.exists()) {
-                    runCatching { legacyDirV2.deleteRecursively() }
+                // 1. Purge legacy cache directories so fresh Mapbox tiles are loaded cleanly
+                listOf(
+                    File(appContext.cacheDir, "osm_tiles_v1"),
+                    File(appContext.filesDir, "osm_tile_cache_v2"),
+                    File(appContext.filesDir, "osm_tile_cache_v3")
+                ).forEach { dir ->
+                    if (dir.exists()) {
+                        runCatching { dir.deleteRecursively() }
+                    }
                 }
 
-                // 2. Index all valid persistent cached tiles in v3 directory
+                // 2. Index all valid persistent cached tiles in v4 Mapbox directory
                 val primaryDir = getPersistentCacheDir(appContext)
                 val files = primaryDir.listFiles() ?: emptyArray()
                 var validCount = 0

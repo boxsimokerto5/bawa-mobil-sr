@@ -1206,7 +1206,7 @@ fun VintageRealTimeMapPanel(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Explore,
-                                    contentDescription = "Cache Peta OpenStreetMap",
+                                    contentDescription = "Cache Peta Mapbox",
                                     tint = if (isOfflineMode) VintageAmberPending else EspressoBrown,
                                     modifier = Modifier.size(14.dp)
                                 )
@@ -1215,22 +1215,22 @@ fun VintageRealTimeMapPanel(
                                     text = when {
                                         isPreCaching -> String.format(
                                             java.util.Locale.US,
-                                            "Z%.1f • Menyimpan Cache (%d)",
+                                            "Mapbox Z%.1f • Menyimpan (%d)",
                                             smoothZoom,
                                             cachedCount
                                         )
                                         isOfflineMode -> String.format(
                                             java.util.Locale.US,
-                                            "Mode Cache Offline (%d Tile)",
+                                            "Mapbox Cache Offline (%d Tile)",
                                             cachedCount
                                         )
                                         cachedCount > 0 -> String.format(
                                             java.util.Locale.US,
-                                            "OSM Z%.1f • %d Cache",
+                                            "Mapbox Z%.1f • %d Cache",
                                             smoothZoom,
                                             cachedCount
                                         )
-                                        else -> String.format(java.util.Locale.US, "OSM Z%.1f", smoothZoom)
+                                        else -> String.format(java.util.Locale.US, "Mapbox Z%.1f", smoothZoom)
                                     },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isOfflineMode) DeepInkBrown else EspressoBrown,

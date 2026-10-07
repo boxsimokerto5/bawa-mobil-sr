@@ -1090,7 +1090,7 @@ fun TripPlanFormScreen(
                                     text = String.format(
                                         java.util.Locale.US,
                                         "%s: %.4f, %.4f",
-                                        if (isPinnedFromSuggestion) "Ditandai sebagai Tujuan" else "Titik OSM",
+                                        if (isPinnedFromSuggestion) "Ditandai sebagai Tujuan" else "Titik Mapbox",
                                         pickedLat,
                                         pickedLng
                                     ),

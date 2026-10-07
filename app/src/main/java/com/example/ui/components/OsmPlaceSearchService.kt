@@ -3,6 +3,7 @@ package com.example.ui.components
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -12,7 +13,7 @@ data class OsmPlaceSuggestion(
     val addressSubtitle: String,
     val latitude: Double,
     val longitude: Double,
-    val categoryBadge: String = "OpenStreetMap"
+    val categoryBadge: String = "Mapbox"
 )
 
 /**
@@ -304,9 +305,8 @@ object OsmPlaceSearchService {
     }
 
     /**
-     * Queries OpenStreetMap Nominatim API for real-world places in Indonesia and merges with
-     * instant curated matches so both local landmarks (e.g. "RS SLG") and any street/place across
-     * Indonesia are suggested.
+     * Queries Mapbox Geocoding API (`mapbox.places`) with proximity biased to Sekolah Rakyat (-7.872575, 112.169353)
+     * and falls back to Nominatim + curated local matches so every Indonesian place/POI is found accurately.
      */
     suspend fun searchPlacesWithNominatim(query: String): List<OsmPlaceSuggestion> = withContext(Dispatchers.IO) {
         val localMatches = getInstantLocalSuggestions(query)
@@ -316,54 +316,103 @@ object OsmPlaceSearchService {
         }
 
         val remoteMatches = mutableListOf<OsmPlaceSuggestion>()
-        try {
-            val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val urlString = "https://nominatim.openstreetmap.org/search?format=jsonv2&q=$encoded&countrycodes=id&limit=6&addressdetails=1"
-            val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 4500
-                readTimeout = 4500
-                setRequestProperty("User-Agent", "BawaMobilSR-FleetTracker/1.0 (Android; OpenStreetMap)")
-                setRequestProperty("Accept-Language", "id,en")
-            }
+        val encoded = runCatching { URLEncoder.encode(trimmed, "UTF-8") }.getOrDefault(trimmed)
 
-            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                val jsonArray = JSONArray(body)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val lat = obj.optString("lat").toDoubleOrNull() ?: continue
-                    val lon = obj.optString("lon").toDoubleOrNull() ?: continue
-                    val displayName = obj.optString("display_name", "")
-                    val rawName = obj.optString("name", "")
-                    val category = obj.optString("type", "Lokasi OSM").replace("_", " ")
-
-                    val parts = displayName.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    val primaryTitle = if (rawName.isNotBlank()) {
-                        rawName
-                    } else {
-                        parts.firstOrNull() ?: trimmed
-                    }
-                    val subtitle = if (parts.size > 1) {
-                        parts.drop(1).take(4).joinToString(", ")
-                    } else {
-                        displayName
-                    }
-
-                    remoteMatches.add(
-                        OsmPlaceSuggestion(
-                            title = primaryTitle,
-                            addressSubtitle = subtitle,
-                            latitude = lat,
-                            longitude = lon,
-                            categoryBadge = category.replaceFirstChar { it.uppercase() }
-                        )
-                    )
+        // 1. Primary Geocoder: Mapbox Places Geocoding API v5 (when MAPBOX_PUBLIC_TOKEN is configured)
+        val mapboxToken = OsmTileStore.getResolvedMapboxToken()
+        if (mapboxToken.isNotEmpty()) {
+            try {
+                val mapboxUrl = "https://api.mapbox.com/geocoding/v5/mapbox.places/$encoded.json" +
+                    "?country=id&proximity=112.169353,-7.872575&language=id&limit=6&access_token=$mapboxToken"
+                val conn = (URL(mapboxUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4500
+                    readTimeout = 4500
+                    setRequestProperty("Accept", "application/json")
                 }
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: JSONArray()
+                    for (i in 0 until features.length()) {
+                        val feature = features.getJSONObject(i)
+                        val center = feature.optJSONArray("center")
+                        if (center == null || center.length() < 2) continue
+                        val lon = center.optDouble(0, Double.NaN)
+                        val lat = center.optDouble(1, Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val text = feature.optString("text", "").ifBlank { trimmed }
+                        val placeName = feature.optString("place_name", text)
+                        val subtitle = placeName.removePrefix(text).removePrefix(",").trim().ifBlank { placeName }
+
+                        remoteMatches.add(
+                            OsmPlaceSuggestion(
+                                title = text,
+                                addressSubtitle = subtitle,
+                                latitude = lat,
+                                longitude = lon,
+                                categoryBadge = "Mapbox"
+                            )
+                        )
+                    }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {
+                // Fall back to secondary geocoder if network error occurs
             }
-            conn.disconnect()
-        } catch (_: Exception) {
-            // If offline or rate-limited, localMatches still provide instant suggestions
+        }
+
+        // 2. Fallback Geocoder if Mapbox returned no remote results
+        if (remoteMatches.isEmpty()) {
+            try {
+                val urlString = "https://nominatim.openstreetmap.org/search?format=jsonv2&q=$encoded&countrycodes=id&limit=6&addressdetails=1"
+                val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4500
+                    readTimeout = 4500
+                    setRequestProperty("User-Agent", "BawaMobilSR-FleetTracker/1.0 (Android; Mapbox)")
+                    setRequestProperty("Accept-Language", "id,en")
+                }
+
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    val jsonArray = JSONArray(body)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val lat = obj.optString("lat").toDoubleOrNull() ?: continue
+                        val lon = obj.optString("lon").toDoubleOrNull() ?: continue
+                        val displayName = obj.optString("display_name", "")
+                        val rawName = obj.optString("name", "")
+                        val category = obj.optString("type", "Lokasi Peta").replace("_", " ")
+
+                        val parts = displayName.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        val primaryTitle = if (rawName.isNotBlank()) {
+                            rawName
+                        } else {
+                            parts.firstOrNull() ?: trimmed
+                        }
+                        val subtitle = if (parts.size > 1) {
+                            parts.drop(1).take(4).joinToString(", ")
+                        } else {
+                            displayName
+                        }
+
+                        remoteMatches.add(
+                            OsmPlaceSuggestion(
+                                title = primaryTitle,
+                                addressSubtitle = subtitle,
+                                latitude = lat,
+                                longitude = lon,
+                                categoryBadge = category.replaceFirstChar { it.uppercase() }
+                            )
+                        )
+                    }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {
+                // If offline or rate-limited, localMatches still provide instant suggestions
+            }
         }
 
         val combined = mutableListOf<OsmPlaceSuggestion>()
